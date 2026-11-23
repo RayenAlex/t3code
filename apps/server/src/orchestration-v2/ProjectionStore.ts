@@ -975,6 +975,9 @@ function upsertProviderTurn(
     ...((next.tokenUsage ?? current?.tokenUsage) === undefined
       ? {}
       : { tokenUsage: next.tokenUsage ?? current?.tokenUsage }),
+    ...((next.turnTokenUsage ?? current?.turnTokenUsage) === undefined
+      ? {}
+      : { turnTokenUsage: next.turnTokenUsage ?? current?.turnTokenUsage }),
   });
 }
 
@@ -2979,7 +2982,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             }
             case "provider-turn.updated": {
               const existingRows =
-                event.payload.tokenUsage === undefined
+                event.payload.tokenUsage === undefined || event.payload.turnTokenUsage === undefined
                   ? yield* sql<PayloadRow>`
                     SELECT payload_json
                     FROM orchestration_v2_projection_provider_turns

@@ -6,8 +6,10 @@ import {
   type OrchestrationV2ProviderThread,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
+  EventId,
   MessageId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   NodeId,
   ProviderThreadId,
@@ -19,6 +21,7 @@ import {
 import * as DateTime from "effect/DateTime";
 
 import { applyOrchestrationV2ProjectionEvent } from "./orchestrationV2Projection.ts";
+import { applyThreadStreamItem, initialThreadStreamState } from "./threadStream.ts";
 
 const now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
 const threadId = ThreadId.make("thread-reducer");
@@ -172,6 +175,49 @@ describe("applyOrchestrationV2ProjectionEvent", () => {
 
     expect(next?.providerTurns[0]?.status).toBe("completed");
     expect(next?.providerTurns[0]?.tokenUsage).toEqual(running.tokenUsage);
+  });
+
+  it("keeps the settled provider ledger when replaying updates after reconnect", () => {
+    const turnTokenUsage = {
+      usageScope: "main_agent",
+      usageStatus: "complete",
+      hasSubagents: false,
+      inputTokens: 2_000,
+      cachedInputTokens: 1_500,
+      outputTokens: 100,
+    } as const;
+    const turn = {
+      id: ProviderTurnId.make("provider-turn-settled-reconnect"),
+      providerThreadId: ProviderThreadId.make("provider-thread-reducer"),
+      nodeId: NodeId.make("provider-node-reducer"),
+      runAttemptId: null,
+      nativeTurnRef: null,
+      ordinal: 1,
+      status: "completed" as const,
+      startedAt: now,
+      completedAt: now,
+    };
+    const reconnected = applyThreadStreamItem(initialThreadStreamState, {
+      kind: "snapshot",
+      snapshotSequence: 7,
+      projection: { ...emptyProjection, providerTurns: [{ ...turn, turnTokenUsage }] },
+    });
+    const update = { ...turn, model: "gpt-5.4" };
+    const replayed = applyThreadStreamItem(reconnected, {
+      kind: "event",
+      sequence: 8,
+      event: {
+        id: EventId.make("event-provider-turn-replayed"),
+        type: "provider-turn.updated",
+        threadId,
+        driver: ProviderDriverKind.make("codex"),
+        occurredAt: now,
+        payload: update,
+      },
+    });
+
+    expect(replayed.sequence).toBe(8);
+    expect(replayed.projection?.providerTurns).toEqual([{ ...update, turnTokenUsage }]);
   });
 
   it("applies thread lifecycle payloads instead of leaving stale metadata", () => {

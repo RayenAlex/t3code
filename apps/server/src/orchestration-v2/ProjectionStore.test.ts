@@ -3990,7 +3990,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     "command reads skip finished leaf nodes of finished runs",
     () => commandReadsSkipSettledLeafNodes,
   );
-  it.effect("preserves stored provider usage when a terminal update omits it", () =>
+  it.effect("preserves stored provider usage and the settled ledger in reconnect snapshots", () =>
     Effect.gen(function* () {
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       const now = yield* DateTime.now;
@@ -4011,6 +4011,16 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         inputTokens: 16_000,
         outputTokens: 2_000,
         updatedAt: "2026-08-29T12:00:01.000Z",
+      } as const;
+      const settledUsage = {
+        usageScope: "main_agent",
+        usageStatus: "complete",
+        hasSubagents: false,
+        inputTokens: 16_000,
+        cachedInputTokens: 8_000,
+        cacheCreationTokens: 1_000,
+        outputTokens: 2_000,
+        reasoningTokens: 500,
       } as const;
 
       yield* projectionStore.apply({
@@ -4094,6 +4104,36 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
 
       const replaced = yield* projectionStore.getThreadProjection(threadId);
       assert.deepEqual(replaced.providerTurns[0]?.tokenUsage, replacementUsage);
+
+      const settledTurn = { ...providerTurn, status: "completed" as const, completedAt: now };
+      yield* projectionStore.apply({
+        id: EventId.make("event:provider-usage-reload:settled"),
+        type: "provider-turn.updated",
+        threadId,
+        nodeId,
+        driver,
+        occurredAt: now,
+        payload: { ...settledTurn, turnTokenUsage: settledUsage },
+      });
+      const settled = yield* projectionStore.getThreadProjection(threadId);
+      assert.deepEqual(
+        settled.providerTurns.find((turn) => turn.id === providerTurnId)?.turnTokenUsage,
+        settledUsage,
+      );
+
+      yield* projectionStore.apply({
+        id: EventId.make("event:provider-usage-reload:late"),
+        type: "provider-turn.updated",
+        threadId,
+        nodeId,
+        driver,
+        occurredAt: now,
+        payload: { ...settledTurn, tokenUsage: initialUsage },
+      });
+      const { projection } = yield* projectionStore.getThreadSnapshot(threadId);
+      const restored = projection.providerTurns.find((turn) => turn.id === providerTurnId);
+      assert.deepEqual(restored?.tokenUsage, initialUsage);
+      assert.deepEqual(restored?.turnTokenUsage, settledUsage);
     }),
   );
 
