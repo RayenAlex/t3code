@@ -2964,13 +2964,15 @@ describe("AntigravityAdapterV2 update_steps checklist", () => {
       );
       type RuntimeService = AcpSessionRuntime.AcpSessionRuntime["Service"];
       let sessionUpdate: Parameters<RuntimeService["handleSessionUpdate"]>[0] | undefined;
+      let capturedSystemPromptAppend: string | undefined;
       const instanceId = ProviderInstanceId.make("antigravity-update-steps-test");
       const threadId = ThreadId.make("thread-antigravity-update-steps");
       const adapter = yield* makeAntigravityAdapterV2({
         instanceId,
         selfInvocation: yield* resolveSelfInvocation(),
-        makeRuntime: (input) =>
-          makeAntigravityAcpRuntime({
+        makeRuntime: (input) => {
+          capturedSystemPromptAppend = input.sessionSystemPromptAppend;
+          return makeAntigravityAcpRuntime({
             ...input,
             childProcessSpawner,
             spawn: {
@@ -3028,7 +3030,8 @@ describe("AntigravityAdapterV2 update_steps checklist", () => {
                   return { stopReason: "end_turn" as const };
                 }),
             })),
-          ),
+          );
+        },
         withProcess: (_stop, task) => task,
         defaultModel: Effect.undefined,
       });
@@ -3113,6 +3116,8 @@ describe("AntigravityAdapterV2 update_steps checklist", () => {
         ["Create a.txt", "completed"],
         ["Create b.txt", "running"],
       ]);
+      assert.include(capturedSystemPromptAppend ?? "", "<task_progress_reporting>");
+      assert.include(capturedSystemPromptAppend ?? "", "`update_steps`");
     }).pipe(Effect.provide(layerSession)),
   );
 });

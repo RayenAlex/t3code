@@ -2394,13 +2394,16 @@ export function claudeQueryEnvironment(
       ? subagentPromptCacheTtl
       : undefined;
   const blockingMcpConnect = resume && environment.MCP_CONNECTION_NONBLOCKING === undefined;
-  if (promptCacheTtl === undefined && !blockingMcpConnect) {
+  // Claude Code 2.1+ hides TodoWrite/Task* tools for non-allowlisted/gateway models unless set.
+  const enableTodoTools = environment.CLAUDE_CODE_ENABLE_TODO_TOOLS === undefined;
+  if (promptCacheTtl === undefined && !blockingMcpConnect && !enableTodoTools) {
     return environment;
   }
   return {
     ...environment,
     ...(promptCacheTtl === undefined ? {} : { CLAUDE_CODE_PROMPT_CACHE_TTL: promptCacheTtl }),
     ...(blockingMcpConnect ? { MCP_CONNECTION_NONBLOCKING: "0" } : {}),
+    ...(enableTodoTools ? { CLAUDE_CODE_ENABLE_TODO_TOOLS: "1" } : {}),
   };
 }
 
@@ -2510,6 +2513,66 @@ const CLAUDE_SEND_TO_USER_INSTRUCTIONS = `
 
 Text you write before a tool call may reach the user only as a one-line summary. When the user must read something in full before your turn ends, such as a draft, a code block, or what a question you're about to ask refers to, send it with \`send_to_user\`. Put everything else in your final reply.
 `;
+
+// Claude Code 2.1+ defers TaskCreate/TaskUpdate/TodoWrite behind ToolSearch, so
+// non-Anthropic/gateway models (e.g. GPT via proxy) rarely load or call them on
+// their own and run long multi-step turns with no visible task progress.
+const CLAUDE_TASK_PROGRESS_INSTRUCTIONS = `
+
+### Task progress reporting
+
+T3 Code's Task Coordination panel shows your live progress from Claude Code's task tools, which are deferred behind ToolSearch. Whenever a request involves more than a trivial one-step reply (including multi-file or multi-repo research, analysis, planning, or implementation with 3+ steps), call ToolSearch with \`select:TaskCreate,TaskUpdate\` before your main work, create 3-8 concise steps with \`TaskCreate\`, immediately mark the first step \`in_progress\` with \`TaskUpdate\`, and update each step to \`completed\` / \`in_progress\` as you advance (mark all \`completed\` before your final reply). Skip only for simple one-step questions or trivial single edits.
+`;
+
+const CLAUDE_TODO_WRITE_INSTRUCTIONS = `
+
+### Task progress reporting
+
+T3 Code's Task Coordination panel shows your live progress from \`TodoWrite\`, which is deferred behind ToolSearch. Whenever a request involves more than a trivial one-step reply (including multi-file or multi-repo research, analysis, planning, or implementation with 3+ steps), call ToolSearch with \`select:TodoWrite\` before your main work, record 3-8 concise steps (marking the first \`in_progress\`), and update statuses as you advance (mark all \`completed\` before your final reply). Skip only for simple one-step questions or trivial single edits.
+`;
+
+function isClaudeEnvDisabled(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return (
+    normalized === "0" || normalized === "false" || normalized === "off" || normalized === "no"
+  );
+}
+
+const CLAUDE_TASK_PROGRESS_PROMPT_HOOK_TEXT =
+  "Task progress reporting: for any multi-step task (including multi-file or multi-repo research, analysis, planning, or 3+ step implementation), load TaskCreate and TaskUpdate via ToolSearch (`select:TaskCreate,TaskUpdate`) before reading files or running commands, create 3-8 concise steps, mark the first `in_progress` via TaskUpdate, and update statuses as you advance (all `completed` before finishing). Skip only for trivial one-step questions or single-line edits.";
+
+const CLAUDE_TODO_WRITE_PROMPT_HOOK_TEXT =
+  "Task progress reporting: for any multi-step task (including multi-file or multi-repo research, analysis, planning, or 3+ step implementation), load TodoWrite via ToolSearch (`select:TodoWrite`) before reading files or running commands, record 3-8 concise steps (marking the first `in_progress`), and update statuses as you advance (all `completed` before finishing). Skip only for trivial one-step questions or single-line edits.";
+
+function claudeTaskProgressInstructions(environment: NodeJS.ProcessEnv | undefined): string {
+  if (isClaudeEnvDisabled(environment?.CLAUDE_CODE_ENABLE_TODO_TOOLS)) {
+    return "";
+  }
+  if (isClaudeEnvDisabled(environment?.CLAUDE_CODE_ENABLE_TASKS)) {
+    return CLAUDE_TODO_WRITE_INSTRUCTIONS;
+  }
+  return CLAUDE_TASK_PROGRESS_INSTRUCTIONS;
+}
+
+// Claude Code 2.1+ freezes systemPromptSnapshot on --resume until compaction, so a
+// UserPromptSubmit hook ensures resumed threads and gateway models still receive it.
+function claudeTaskProgressPromptHook(
+  environment: NodeJS.ProcessEnv | undefined,
+): HookCallback | undefined {
+  if (isClaudeEnvDisabled(environment?.CLAUDE_CODE_ENABLE_TODO_TOOLS)) {
+    return undefined;
+  }
+  const additionalContext = isClaudeEnvDisabled(environment?.CLAUDE_CODE_ENABLE_TASKS)
+    ? CLAUDE_TODO_WRITE_PROMPT_HOOK_TEXT
+    : CLAUDE_TASK_PROGRESS_PROMPT_HOOK_TEXT;
+  return () =>
+    Promise.resolve({
+      hookSpecificOutput: {
+        hookEventName: "UserPromptSubmit",
+        additionalContext,
+      },
+    });
+}
 
 // Native subagents start from their task, not this session's system prompt.
 const subagentDeviceInstructions: HookCallback = () =>
@@ -2642,6 +2705,7 @@ export function makeClaudeQueryOptions(input: {
           },
         } as ClaudeSdkSettings);
   const deviceInstructions = input.mcpServers !== undefined && input.deviceToolsAvailable === true;
+  const taskProgressPromptHook = claudeTaskProgressPromptHook(input.environment);
   const agentFeedback = input.mcpServers === undefined ? "off" : (input.agentFeedback ?? "off");
   const options: ClaudeAgentSdkQueryOptions = {
     model: compiledSelection.apiModelId,
@@ -2701,6 +2765,7 @@ export function makeClaudeQueryOptions(input: {
           agentFeedback,
           runtimePolicy: { cwd: input.cwd, workspace: input.workspace },
         }) +
+          claudeTaskProgressInstructions(input.environment) +
           (input.mcpServers === undefined
             ? ""
             : T3_CODE_ORCHESTRATION_INSTRUCTIONS +
@@ -2712,12 +2777,15 @@ export function makeClaudeQueryOptions(input: {
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
-    ...(deviceInstructions || input.onStop !== undefined
+    ...(deviceInstructions || taskProgressPromptHook !== undefined || input.onStop !== undefined
       ? {
           hooks: {
             ...(deviceInstructions
               ? { SubagentStart: [{ hooks: [subagentDeviceInstructions] }] }
               : {}),
+            ...(taskProgressPromptHook === undefined
+              ? {}
+              : { UserPromptSubmit: [{ hooks: [taskProgressPromptHook] }] }),
             ...(input.onStop === undefined ? {} : { Stop: [{ hooks: [input.onStop] }] }),
           },
         }

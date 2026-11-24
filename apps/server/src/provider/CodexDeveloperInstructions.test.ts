@@ -79,6 +79,15 @@ describe("Codex device context", () => {
   });
 });
 
+describe("Codex task progress context", () => {
+  it("instructs Codex to report multi-step analysis and implementation via update_plan", () => {
+    const progress = buildCodexAdditionalContext({ model: "gpt-6.2-sol" }).t3_code_task_progress
+      ?.value;
+    NodeAssert.ok(progress?.includes("`update_plan`"));
+    NodeAssert.ok(progress?.includes("research, analysis, planning, or implementation"));
+  });
+});
+
 function runtimeInstructions(runtime: Parameters<typeof buildCodexAdditionalContext>[0]) {
   return buildCodexAdditionalContext(runtime).t3_code_runtime!.value;
 }

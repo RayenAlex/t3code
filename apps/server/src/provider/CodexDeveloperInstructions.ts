@@ -11,6 +11,10 @@ import {
 /** Codex silently truncates additionalContext values over 1,000 tokens, counted as UTF-8 bytes / 4. */
 export const CODEX_ADDITIONAL_CONTEXT_VALUE_MAX_BYTES = 4_000;
 
+const CODEX_TASK_PROGRESS_INSTRUCTIONS = `## Task progress reporting
+
+T3 Code's Task Coordination panel shows your live progress from \`update_plan\`. Whenever a request involves more than a trivial 1-2 step reply (including multi-file or multi-repo research, analysis, planning, or implementation with 3+ steps), call \`update_plan\` before your main work with 3-8 concise steps (first step \`in_progress\`), update step statuses as you advance, and mark all steps \`completed\` before your final reply. Skip only for simple 1-2 step questions or trivial single edits.`;
+
 export interface T3CodeToolAvailability {
   readonly browser: boolean;
   readonly device: boolean;
@@ -56,6 +60,10 @@ export function buildCodexAdditionalContext(
     t3_code_runtime: {
       kind: "application",
       value: buildRuntimeInstructions({ harness: "Codex", ...runtime }),
+    },
+    t3_code_task_progress: {
+      kind: "application",
+      value: CODEX_TASK_PROGRESS_INSTRUCTIONS,
     },
     ...(tools ? { t3_code_tools: { kind: "application", value: tools } } : {}),
   };

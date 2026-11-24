@@ -474,9 +474,33 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     assert.isUndefined(ttl(env, null));
     assert.isUndefined(ttl(env, "fork"));
     assert.equal(ttl({ ...env, CLAUDE_CODE_PROMPT_CACHE_TTL: "1h" }, "subagent"), "1h");
+    const passthrough = { ...env, CLAUDE_CODE_ENABLE_TODO_TOOLS: "1" };
     assert.strictEqual(
-      ClaudeAdapterV2.claudeQueryEnvironment(env, lineage("subagent"), undefined),
-      env,
+      ClaudeAdapterV2.claudeQueryEnvironment(passthrough, lineage("subagent"), undefined),
+      passthrough,
+    );
+  });
+
+  it("enables Claude Code todo tools by default while respecting explicit overrides", () => {
+    const appThread = {
+      lineage: {
+        parentThreadId: null,
+        relationshipToParent: null,
+        rootThreadId: ThreadId.make("t"),
+      },
+    };
+    assert.equal(
+      ClaudeAdapterV2.claudeQueryEnvironment({}, appThread, undefined)
+        .CLAUDE_CODE_ENABLE_TODO_TOOLS,
+      "1",
+    );
+    assert.equal(
+      ClaudeAdapterV2.claudeQueryEnvironment(
+        { CLAUDE_CODE_ENABLE_TODO_TOOLS: "0" },
+        appThread,
+        undefined,
+      ).CLAUDE_CODE_ENABLE_TODO_TOOLS,
+      "0",
     );
   });
 
@@ -972,6 +996,65 @@ describe("ClaudeAdapterV2 T3 tool instructions", () => {
   it("leaves the device block out without device access or without T3 tools", () => {
     assert.notInclude(append({ mcp: true, deviceToolsAvailable: false }), "## T3 Code devices");
     assert.notInclude(append({ mcp: false, deviceToolsAvailable: true }), "## T3 Code devices");
+  });
+
+  it("instructs Claude Code sessions to load deferred task progress tools upfront unless disabled", async () => {
+    const queryWithEnv = (environment: NodeJS.ProcessEnv) =>
+      ClaudeAdapterV2.makeClaudeQueryOptions({
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("claudeAgent"),
+          model: "anthropic/magpie-4270828743",
+        },
+        nativeThreadId: "native-thread-claude-task-progress",
+        resume: true,
+        cwd: "/workspace",
+        environment,
+      });
+    const promptHookOutputs = (options: ClaudeAdapterV2.ClaudeAgentSdkQueryOptions) =>
+      Promise.all(
+        (options.hooks?.UserPromptSubmit ?? []).flatMap((matcher) =>
+          matcher.hooks.map((hook) =>
+            hook(
+              {
+                hook_event_name: "UserPromptSubmit",
+                prompt: "Investigate across repos",
+                session_id: "native-thread-claude-task-progress",
+                transcript_path: "/transcript.jsonl",
+                cwd: "/workspace",
+              },
+              undefined,
+              { signal: new AbortController().signal },
+            ),
+          ),
+        ),
+      );
+
+    const defaultOptions = queryWithEnv({ CLAUDE_CODE_ENABLE_TODO_TOOLS: "1" });
+    const defaultPrompt =
+      (defaultOptions.systemPrompt as { readonly append?: string }).append ?? "";
+    assert.include(defaultPrompt, "### Task progress reporting");
+    assert.include(defaultPrompt, "select:TaskCreate,TaskUpdate");
+    const defaultHooks = await promptHookOutputs(defaultOptions);
+    assert.lengthOf(defaultHooks, 1);
+    assert.include(JSON.stringify(defaultHooks[0]), "select:TaskCreate,TaskUpdate");
+
+    const todoWriteOptions = queryWithEnv({
+      CLAUDE_CODE_ENABLE_TODO_TOOLS: "1",
+      CLAUDE_CODE_ENABLE_TASKS: "0",
+    });
+    const todoWritePrompt =
+      (todoWriteOptions.systemPrompt as { readonly append?: string }).append ?? "";
+    assert.include(todoWritePrompt, "### Task progress reporting");
+    assert.include(todoWritePrompt, "select:TodoWrite");
+    const todoWriteHooks = await promptHookOutputs(todoWriteOptions);
+    assert.lengthOf(todoWriteHooks, 1);
+    assert.include(JSON.stringify(todoWriteHooks[0]), "select:TodoWrite");
+
+    const disabledOptions = queryWithEnv({ CLAUDE_CODE_ENABLE_TODO_TOOLS: "0" });
+    const disabledPrompt =
+      (disabledOptions.systemPrompt as { readonly append?: string }).append ?? "";
+    assert.notInclude(disabledPrompt, "### Task progress reporting");
+    assert.isUndefined(disabledOptions.hooks?.UserPromptSubmit);
   });
 
   it("gives the agent feedback line only to a session with T3 tools", () => {

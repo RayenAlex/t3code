@@ -144,6 +144,12 @@ interface AntigravityFlavorServices {
   readonly host: ProviderHost.ProviderHost["Service"];
 }
 
+const ANTIGRAVITY_TASK_PROGRESS_INSTRUCTIONS = `<task_progress_reporting>
+T3 Code's Task Coordination panel shows your live progress from \`update_steps\`. Whenever a request involves more than a trivial 1-2 step reply (including multi-file or multi-repo research, analysis, planning, or implementation with 3+ steps), call \`update_steps\` before your main work with 3-8 concise steps (first step \`in_progress\`), update step statuses as you advance, and mark all steps \`done\` before your final reply. Skip only for simple 1-2 step questions or trivial single edits.
+</task_progress_reporting>`;
+
+const ANTIGRAVITY_SESSION_SYSTEM_PROMPT_APPEND = `${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${ANTIGRAVITY_TASK_PROGRESS_INSTRUCTIONS}`;
+
 export function makeAntigravityAcpAdapterFlavor(
   options: AntigravityAdapterV2Options & AntigravityFlavorServices,
 ): AcpAdapterV2Flavor {
@@ -159,7 +165,7 @@ export function makeAntigravityAcpAdapterFlavor(
           options.makeRuntime({
             ...input,
             clientFileReads: true,
-            sessionSystemPromptAppend: PULL_REQUEST_LINKING_INSTRUCTIONS,
+            sessionSystemPromptAppend: ANTIGRAVITY_SESSION_SYSTEM_PROMPT_APPEND,
           }),
         )
         .pipe(Effect.provideService(Scope.Scope, scope));
