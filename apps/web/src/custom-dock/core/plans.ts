@@ -82,6 +82,63 @@ function parseUpdateSteps(item: ThreadStructureTurnItem): readonly ParsedTodoSte
   return steps.length > 0 ? steps : null;
 }
 
+const DEFAULT_STEP_PACE_MS = 30_000;
+const MIN_STEP_PACE_MS = 8_000;
+const MAX_STEP_PACE_MS = 300_000;
+
+export function computePlanProgress(input: {
+  readonly steps: readonly {
+    readonly id: string;
+    readonly stage: "Done" | "Now" | "Next";
+    readonly durationMs: number | null;
+    readonly durationAnchorAt: string | null;
+  }[];
+  readonly runStartedAtMs: number | null;
+  readonly nowMs: number;
+}): {
+  readonly overallPercent: number;
+  readonly stepPercents: ReadonlyMap<string, number>;
+} {
+  const { steps, runStartedAtMs, nowMs } = input;
+  const total = steps.length;
+  const stepPercents = new Map<string, number>();
+  if (total === 0) return { overallPercent: 0, stepPercents };
+
+  const measured = steps.flatMap((step) =>
+    step.stage === "Done" && step.durationMs != null && step.durationMs > 0
+      ? [step.durationMs]
+      : [],
+  );
+  const meanStepMs =
+    measured.length > 0
+      ? measured.reduce((sum, n) => sum + n, 0) / measured.length
+      : DEFAULT_STEP_PACE_MS;
+  const expectedStepMs = Math.min(MAX_STEP_PACE_MS, Math.max(MIN_STEP_PACE_MS, meanStepMs));
+
+  let doneCount = 0;
+  let activeWork = 0;
+  for (const step of steps) {
+    if (step.stage === "Done") {
+      doneCount += 1;
+      stepPercents.set(step.id, 100);
+      continue;
+    }
+    if (step.stage === "Now") {
+      const anchorMs = timestampMs(step.durationAnchorAt) ?? runStartedAtMs;
+      const elapsedMs = anchorMs === null ? 0 : Math.max(0, nowMs - anchorMs);
+      const percent = Math.min(95, Math.round((100 * elapsedMs) / expectedStepMs));
+      stepPercents.set(step.id, percent);
+      activeWork += percent / 100;
+    } else {
+      stepPercents.set(step.id, 0);
+    }
+  }
+
+  const overallPercent =
+    doneCount === total ? 100 : Math.min(99, Math.round((100 * (doneCount + activeWork)) / total));
+  return { overallPercent, stepPercents };
+}
+
 function compareCandidates(next: TodoCandidate, current: TodoCandidate | undefined): boolean {
   if (current === undefined) return true;
   if (next.runOrdinal !== current.runOrdinal) return next.runOrdinal > current.runOrdinal;
@@ -183,16 +240,54 @@ export function derivePlanSnapshot(projection: ThreadStructure) {
     if (plan.kind === "proposed_plan" && rank(plan) >= rank(proposed)) proposed = plan;
   }
 
-  for (const item of projection.turnItems ?? []) {
-    if (item.runId != null && runs.get(item.runId)?.status === "rolled_back") continue;
+  const updateStepItems = (projection.turnItems ?? [])
+    .filter((item) => item.runId == null || runs.get(item.runId)?.status !== "rolled_back")
+    .toSorted((a, b) => a.ordinal - b.ordinal);
+  const stepTimingByRun = new Map<
+    string,
+    { readonly startedAtMs: Map<string, number>; readonly durationMs: Map<string, number> }
+  >();
+  for (const item of updateStepItems) {
     const parsedSteps = parseUpdateSteps(item);
     if (parsedSteps === null) continue;
+    const runKey = item.runId ?? "__thread__";
+    let timing = stepTimingByRun.get(runKey);
+    if (!timing) {
+      timing = { startedAtMs: new Map(), durationMs: new Map() };
+      stepTimingByRun.set(runKey, timing);
+    }
+    const atMs = timestampMs(item.completedAt ?? item.startedAt);
+    const timedSteps: ParsedTodoStep[] = parsedSteps.map((step) => {
+      if (step.stage === "Now") {
+        if (atMs !== null && !timing.startedAtMs.has(step.label)) {
+          timing.startedAtMs.set(step.label, atMs);
+        }
+        const anchorMs = timing.startedAtMs.get(step.label);
+        return {
+          ...step,
+          durationAnchorAt: anchorMs === undefined ? null : new Date(anchorMs).toISOString(),
+        };
+      }
+      if (step.stage === "Done") {
+        if (!timing.durationMs.has(step.label) && atMs !== null) {
+          const startedAt = timing.startedAtMs.get(step.label);
+          if (startedAt !== undefined && atMs >= startedAt) {
+            timing.durationMs.set(step.label, atMs - startedAt);
+          }
+        }
+        return {
+          ...step,
+          durationMs: timing.durationMs.get(step.label) ?? null,
+        };
+      }
+      return step;
+    });
     const candidate: TodoCandidate = {
       runId: item.runId,
       runOrdinal: item.runId == null ? -1 : (runs.get(item.runId)?.ordinal ?? -1),
       ordinal: item.ordinal,
       sourceRank: 0,
-      steps: parsedSteps,
+      steps: timedSteps,
     };
     if (
       currentRun !== null &&

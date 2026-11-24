@@ -23,7 +23,7 @@ import { useStore } from "zustand";
 import { Button } from "../../components/ui/button";
 import { tickTextContent } from "../../lib/tickTextContent";
 import { useRightPanelStore } from "../../rightPanelStore";
-import type { LiveActivityAction } from "../core/plans";
+import { computePlanProgress, type LiveActivityAction } from "../core/plans";
 import type { LiveOutputProgress } from "../core/threadObserver";
 import { DockTab, DockTabList } from "../host/DockTabs";
 import {
@@ -213,14 +213,130 @@ function Phase({ phase }: { readonly phase: DockSnapshot["activity"]["phase"] })
   );
 }
 
-function Progress({ done, total }: { readonly done: number; readonly total: number }) {
+function LivePlanProgress({
+  steps,
+  runStartedAtMs,
+  environmentId,
+  label,
+}: {
+  readonly steps: DockSnapshot["plans"]["steps"];
+  readonly runStartedAtMs: number | null;
+  readonly environmentId?: EnvironmentId;
+  readonly label?: ReactNode;
+}) {
+  const done = steps.filter((step) => step.stage === "Done").length;
+  const total = steps.length;
+  const isComplete = total > 0 && done === total;
+  const isLive =
+    runStartedAtMs !== null && !isComplete && steps.some((step) => step.stage === "Now");
+  const initialPercent = total > 0 ? Math.round((100 * done) / total) : 0;
   return (
-    <progress
-      className="h-1.5 w-full overflow-hidden rounded-full bg-muted [&::-moz-progress-bar]:bg-success-foreground [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-success-foreground"
-      max={Math.max(1, total)}
-      value={done}
-      aria-label={`${done}/${total}`}
-    />
+    <div
+      className="space-y-1.5"
+      ref={(node) => {
+        if (!node) return;
+        const pctNode = node.querySelector<HTMLElement>("[data-plan-percent]");
+        const fillNode = node.querySelector<HTMLElement>("[data-plan-fill]");
+        const barNode = node.querySelector<HTMLElement>("[role='progressbar']");
+        const write = () => {
+          const nowMs = Date.now();
+          const serverNow =
+            environmentId === undefined ? nowMs : toServerClock(environmentId, nowMs);
+          const { overallPercent } = computePlanProgress({
+            steps,
+            runStartedAtMs,
+            nowMs: serverNow,
+          });
+          const pct = isLive ? overallPercent : initialPercent;
+          if (pctNode) pctNode.textContent = `${pct}%`;
+          if (fillNode) fillNode.style.width = `${pct}%`;
+          if (barNode) barNode.setAttribute("aria-valuenow", String(pct));
+        };
+        write();
+        return isLive ? secondTick.subscribe(write) : undefined;
+      }}
+    >
+      {label !== undefined && (
+        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          {label}
+          <span
+            data-plan-percent
+            className="shrink-0 font-mono text-2xs font-medium text-foreground tabular-nums"
+          >
+            {initialPercent}%
+          </span>
+        </div>
+      )}
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={initialPercent}
+        aria-label={`${done}/${total}`}
+        className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          data-plan-fill
+          className={`h-full rounded-full transition-[width] duration-300 ease-out motion-reduce:transition-none ${
+            isComplete ? "bg-success-foreground" : "bg-info-foreground"
+          }`}
+          style={{ width: `${initialPercent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ActiveStepProgress({
+  steps,
+  stepId,
+  runStartedAtMs,
+  environmentId,
+}: {
+  readonly steps: DockSnapshot["plans"]["steps"];
+  readonly stepId: string;
+  readonly runStartedAtMs: number | null;
+  readonly environmentId?: EnvironmentId;
+}) {
+  const isLive = runStartedAtMs !== null;
+  return (
+    <div
+      className="mt-1 flex items-center gap-2"
+      ref={(node) => {
+        if (!node) return;
+        const fillNode = node.querySelector<HTMLElement>("[data-step-fill]");
+        const pctNode = node.querySelector<HTMLElement>("[data-step-percent]");
+        const write = () => {
+          const nowMs = Date.now();
+          const serverNow =
+            environmentId === undefined ? nowMs : toServerClock(environmentId, nowMs);
+          const { stepPercents } = computePlanProgress({
+            steps,
+            runStartedAtMs,
+            nowMs: serverNow,
+          });
+          const pct = stepPercents.get(stepId) ?? 0;
+          if (fillNode) fillNode.style.width = `${Math.max(pct, 6)}%`;
+          if (pctNode) pctNode.textContent = `${pct}%`;
+        };
+        write();
+        return isLive ? secondTick.subscribe(write) : undefined;
+      }}
+    >
+      <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+        <div
+          data-step-fill
+          className="h-full rounded-full bg-warning-foreground transition-[width] duration-300 ease-out motion-reduce:transition-none"
+          style={{ width: "6%" }}
+        />
+      </div>
+      <span
+        data-step-percent
+        className="w-7 shrink-0 text-right font-mono text-3xs text-muted-foreground tabular-nums"
+      >
+        0%
+      </span>
+    </div>
   );
 }
 
@@ -535,20 +651,24 @@ export function ComposerTaskPlan({
   return (
     <div className={pad}>
       {activityStrip}
-      <div className="mb-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span className="inline-flex min-w-0 items-center gap-1.5">
-          <span className="font-mono tabular-nums">
-            {done}/{plans.steps.length}
+      <LivePlanProgress
+        steps={plans.steps}
+        runStartedAtMs={runStartedAtMs}
+        environmentId={snapshot.threadMeta.environmentId}
+        label={
+          <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <span className="font-mono tabular-nums">
+              {done}/{plans.steps.length}
+            </span>
+            {carriedLabel !== null && <FooterMetric separated>{carriedLabel}</FooterMetric>}
+            {plans.referenceEtaMs !== null && (
+              <FooterMetric separated>
+                {copy.eta}: <ClockLabel elapsedMs={plans.referenceEtaMs} startedAtMs={null} />
+              </FooterMetric>
+            )}
           </span>
-          {carriedLabel !== null && <FooterMetric separated>{carriedLabel}</FooterMetric>}
-        </span>
-        {plans.referenceEtaMs !== null && (
-          <span>
-            {copy.eta}: <ClockLabel elapsedMs={plans.referenceEtaMs} startedAtMs={null} />
-          </span>
-        )}
-      </div>
-      <Progress done={done} total={plans.steps.length} />
+        }
+      />
       <ol className="mt-2 space-y-0.5">
         {plans.steps.map((step) => {
           const { Icon, tone } = STEP_ICON[step.stage];
@@ -563,10 +683,10 @@ export function ComposerTaskPlan({
           return (
             <li
               key={step.id}
-              className={`flex items-center gap-2 ${compact ? "min-h-8 py-1" : "min-h-10 gap-2.5 py-1.5"}`}
+              className={`flex items-start gap-2 ${compact ? "min-h-8 py-1" : "min-h-10 gap-2.5 py-1.5"}`}
             >
               <span
-                className={`grid shrink-0 place-items-center rounded-full ${compact ? "size-4" : "size-5"} ${tone}`}
+                className={`mt-0.5 grid shrink-0 place-items-center rounded-full ${compact ? "size-4" : "size-5"} ${tone}`}
               >
                 <Icon
                   aria-hidden="true"
@@ -581,19 +701,31 @@ export function ComposerTaskPlan({
                   }
                 />
               </span>
-              <span
-                className={`min-w-0 flex-1 wrap-break-word font-medium ${compact ? "text-xs leading-snug" : "text-sm"}`}
-              >
-                <span className="sr-only">{copy[step.stage]}: </span>
-                {step.label}
-              </span>
-              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-2xs text-muted-foreground">
-                {step.durationMs !== null || activeClock !== null ? (
-                  <ClockLabel elapsedMs={step.durationMs ?? 0} startedAtMs={activeClock} />
-                ) : (
-                  copy[step.stage]
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`min-w-0 flex-1 wrap-break-word font-medium ${compact ? "text-xs leading-snug" : "text-sm"}`}
+                  >
+                    <span className="sr-only">{copy[step.stage]}: </span>
+                    {step.label}
+                  </span>
+                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-2xs text-muted-foreground">
+                    {step.durationMs !== null || activeClock !== null ? (
+                      <ClockLabel elapsedMs={step.durationMs ?? 0} startedAtMs={activeClock} />
+                    ) : (
+                      copy[step.stage]
+                    )}
+                  </span>
+                </div>
+                {step.stage === "Now" && (
+                  <ActiveStepProgress
+                    steps={plans.steps}
+                    stepId={step.id}
+                    runStartedAtMs={runStartedAtMs}
+                    environmentId={snapshot.threadMeta.environmentId}
+                  />
                 )}
-              </span>
+              </div>
             </li>
           );
         })}
@@ -636,7 +768,16 @@ function TodoPanel({
             {carriedLabel !== null && (
               <p className="text-2xs text-muted-foreground">{carriedLabel}</p>
             )}
-            <Progress done={done} total={plans.steps.length} />
+            <LivePlanProgress
+              steps={plans.steps}
+              runStartedAtMs={runStartedAtMs}
+              environmentId={threadMeta.environmentId}
+              label={
+                <span className="font-mono tabular-nums">
+                  {done}/{plans.steps.length}
+                </span>
+              }
+            />
             <p aria-description={copy.etaHelp} className="text-2xs text-muted-foreground">
               {copy.eta}:{" "}
               {referenceEtaMs === null ? (

@@ -20,7 +20,7 @@ import * as DateTime from "effect/DateTime";
 import { expect, it, vi } from "vite-plus/test";
 
 import { makeThreadProjectionFixture } from "../../../test-fixtures";
-import { derivePlanSnapshot } from "../plans";
+import { computePlanProgress, derivePlanSnapshot } from "../plans";
 import { deriveLiveStreamTps, estimateTextTokens } from "../streamRate";
 import { deriveDockSnapshot, rememberDockRuns } from "../threadObserver";
 import {
@@ -379,11 +379,12 @@ it("derives objective live activity without reading streamed reasoning text", ()
   expect(deriveActivitySnapshot(projection, 20_000).liveAction).toBeNull();
 });
 
-it("parses structured Run update_steps dynamic_tool calls when no native todo_list exists", () => {
+it("parses structured Run update_steps dynamic_tool calls with step timing when no native todo_list exists", () => {
   const { projection, run, turn } = fixture();
   const updateSteps = (
     ordinal: number,
     steps: ReadonlyArray<{ readonly title: string; readonly status: string }>,
+    atMs: number,
     targetRun: OrchestrationV2Run = run,
   ): Extract<OrchestrationV2TurnItem, { type: "dynamic_tool" }> => ({
     id: TurnItemId.make(`steps-${ordinal}`),
@@ -397,37 +398,66 @@ it("parses structured Run update_steps dynamic_tool calls when no native todo_li
     ordinal,
     status: "completed",
     title: "Run update_steps",
-    startedAt: at(2500),
-    completedAt: at(2600),
-    updatedAt: at(2600),
+    startedAt: at(atMs - 100),
+    completedAt: at(atMs),
+    updatedAt: at(atMs),
     type: "dynamic_tool",
     toolName: "Run update_steps",
     input: { steps },
   });
 
-  expect(
-    derivePlanSnapshot({
-      ...projection,
-      turnItems: [
-        updateSteps(10, [
+  const plan = derivePlanSnapshot({
+    ...projection,
+    turnItems: [
+      updateSteps(
+        10,
+        [
           { title: "Inspect source", status: "in_progress" },
           { title: "Run tests", status: "pending" },
-        ]),
-        updateSteps(20, [
+        ],
+        3000,
+      ),
+      updateSteps(
+        20,
+        [
           { title: "Inspect source", status: "done" },
           { title: "Run tests", status: "in_progress" },
-        ]),
-      ],
-    }),
-  ).toMatchObject({
+        ],
+        13_000,
+      ),
+    ],
+  });
+  expect(plan).toMatchObject({
     todoStatus: "provided",
     todoScope: "current",
     todoRunOrdinal: 1,
     steps: [
-      { label: "Inspect source", stage: "Done", durationMs: null },
-      { label: "Run tests", stage: "Now", durationMs: null },
+      { label: "Inspect source", stage: "Done", durationMs: 10_000 },
+      {
+        label: "Run tests",
+        stage: "Now",
+        durationMs: null,
+        durationAnchorAt: "1970-01-01T00:00:13.000Z",
+      },
     ],
   });
+
+  // Active step fills gradually based on measured step pace (10s) and caps at 95% / overall 99%.
+  const mid = computePlanProgress({
+    steps: plan.steps,
+    runStartedAtMs: 2000,
+    nowMs: 18_000,
+  });
+  expect(mid.stepPercents.get(plan.steps[1]!.id)).toBe(50);
+  expect(mid.overallPercent).toBe(75);
+
+  const overdue = computePlanProgress({
+    steps: plan.steps,
+    runStartedAtMs: 2000,
+    nowMs: 90_000,
+  });
+  expect(overdue.stepPercents.get(plan.steps[1]!.id)).toBe(95);
+  expect(overdue.overallPercent).toBe(98);
 
   const nextRun: OrchestrationV2Run = {
     ...run,
@@ -441,10 +471,14 @@ it("parses structured Run update_steps dynamic_tool calls when no native todo_li
       ...projection,
       runs: [run, nextRun],
       turnItems: [
-        updateSteps(20, [
-          { title: "Inspect source", status: "done" },
-          { title: "Run tests", status: "done" },
-        ]),
+        updateSteps(
+          20,
+          [
+            { title: "Inspect source", status: "done" },
+            { title: "Run tests", status: "done" },
+          ],
+          13_000,
+        ),
       ],
     }),
   ).toMatchObject({
