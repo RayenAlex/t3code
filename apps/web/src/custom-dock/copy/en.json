@@ -31,7 +31,6 @@
   "todoWaiting": "Waiting for this run's plan",
   "todoCarried": "Continuing from Run {count}",
   "todoCarriedGeneric": "Continuing earlier plan",
-  "claudeTodoHelp": "Enable Todo tools in Claude Code:",
   "eta": "Reference ETA",
   "etaHelp": "Mean measured completed step × remaining steps",
   "proposedPlan": "Proposed plan",
@@ -114,5 +113,13 @@
   "actionSubagent": "Subagent: {detail}",
   "actionSubagentBare": "Running subagent",
   "summaryFiles": "{count} files changed",
-  "summaryTools": "{count} tool calls"
+  "summaryTools": "{count} tool calls",
+  "geminiQuota": "Gemini quota",
+  "quotaFiveHour": "5-hour",
+  "quotaWeekly": "Weekly",
+  "quotaRemaining": "{value}% left",
+  "quotaRowTooltip": "{label}: {remaining}% left ({used}% used)",
+  "quotaUnavailable": "Quota unavailable. Click refresh to check.",
+  "refreshQuota": "Refresh Gemini quota",
+  "openUsage": "Open usage page"
 }

@@ -43,6 +43,31 @@ it("clamps saved width and restores composer, drawer, and external panel prefere
   });
 });
 
+it("enables context metric when upgrading older preferences and preserves explicit opt-out", () => {
+  const values = new Map<string, string>([
+    ["t3.custom-dock.v1", JSON.stringify({ visibleMetrics: ["output-rate", "tokens", "cache"] })],
+  ]);
+  const storage: Storage = {
+    get length() {
+      return values.size;
+    },
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => void values.set(key, value),
+    removeItem: (key) => void values.delete(key),
+    key: (index) => [...values.keys()][index] ?? null,
+    clear: () => values.clear(),
+  };
+  const upgraded = createDockStore(storage);
+  expect(upgraded.getState().visibleMetrics).toEqual(["context", "output-rate", "tokens", "cache"]);
+
+  upgraded.getState().setVisibleMetrics(["output-rate", "tokens", "cache"]);
+  expect(createDockStore(storage).getState().visibleMetrics).toEqual([
+    "output-rate",
+    "tokens",
+    "cache",
+  ]);
+});
+
 it("sorts registered panels and rejects names that could shadow a built-in", () => {
   const definitions: CustomDockPanelDefinition[] = [
     { id: "telemetry", title: "Telemetry", icon: "activity", order: 2, renderPanel: () => null },

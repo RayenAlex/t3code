@@ -62,7 +62,6 @@ function footer(data: DockSnapshot, runStartedAtMs: number | null = null) {
     snapshot: data,
     runOrdinal: 17,
     runStartedAtMs,
-    claude: false,
     cwd: undefined,
   };
   return (
@@ -168,7 +167,6 @@ it("shows live objective action in the footer and waiting state in task coordina
         snapshot: active,
         runOrdinal: 18,
         runStartedAtMs: null,
-        claude: false,
         cwd: undefined,
       }}
     >
@@ -199,7 +197,6 @@ it("labels a carried unfinished plan from an earlier run instead of hiding it", 
         snapshot: carried,
         runOrdinal: 18,
         runStartedAtMs: null,
-        claude: false,
         cwd: undefined,
       }}
     >
@@ -230,4 +227,35 @@ it("ticks live output TPS in the footer while the run is actively reporting outp
 
   await act(() => vi.advanceTimersByTime(1000));
   await expect.element(screen.getByText("~30 tok/s")).toBeVisible();
+});
+
+it("shows context window progress, percentage, and used/max ratio in the footer when reported", async () => {
+  const withLimit: DockSnapshot = {
+    ...snapshot,
+    contextWindow: {
+      usedTokens: 124_000,
+      maxTokens: 200_000,
+      usedPercentage: 62,
+      remainingTokens: 76_000,
+      autoCompactThreshold: 180_000,
+    },
+  };
+  await using screen = await render(footer(withLimit));
+  await expect.element(screen.getByText(/62%/)).toBeVisible();
+  await expect.element(screen.getByText(/\(124K\/200K\)/)).toBeVisible();
+  await expect.element(screen.getByText(/Context 62%/)).not.toBeInTheDocument();
+
+  await screen.rerender(
+    footer({
+      ...snapshot,
+      contextWindow: {
+        usedTokens: 900,
+        maxTokens: null,
+        usedPercentage: null,
+        remainingTokens: null,
+        autoCompactThreshold: null,
+      },
+    }),
+  );
+  await expect.element(screen.getByLabelText("Context window 900")).toBeVisible();
 });

@@ -4,7 +4,11 @@ import { toServerClock } from "@t3tools/client-runtime/clock";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
 import type { EnvironmentThreadStructure } from "@t3tools/client-runtime/state/shell";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type {
+  ScopedThreadRef,
+  ServerProvider,
+  UsageLimitSourceSnapshots,
+} from "@t3tools/contracts";
 import {
   Activity,
   ChevronDown,
@@ -18,15 +22,21 @@ import {
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useStore } from "zustand";
 
+import { useComposerDraftStore } from "../../composerDraftStore";
 import { RenderErrorBoundary } from "../../components/RenderErrorBoundary";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { observeResize } from "../../lib/observeResize";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import type { AppRouter } from "../../router";
-import { useProject, useQuietThreadShell } from "../../state/entities";
+import { useProject, useQuietThreadShell, useServerConfigs } from "../../state/entities";
+import { useEnvironmentProviders } from "../../state/environments";
+import { serverEnvironment } from "../../state/server";
 import { environmentThreadDetails } from "../../state/threads";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { resolveThreadRouteRef } from "../../threadRoutes";
+import { resolveGeminiQuotaCard } from "../core/geminiQuota";
 import { createRunHistory } from "../core/historyDb";
 import { latestDockRun, isTerminalRun, timestampMs } from "../core/runStructure";
 import { deriveLiveStreamTps } from "../core/streamRate";
@@ -37,6 +47,7 @@ import { ComposerAnchorPortal } from "./ComposerAnchorPortal";
 import { DockTab, DockTabList } from "./DockTabs";
 import { composerMetricKeys } from "./dockStore";
 import { DockRuntime, dockPreferences, useDockCopy, useDockRuntime } from "./panelContext";
+import { RightRailGeminiQuotaCard } from "./RightRailGeminiQuotaCard";
 import { RightRailTaskPortal, useRightRailGeometry } from "./RightRailTaskSlot";
 import { resolveDockPanels } from "./registry";
 import type { CustomDockPanelDefinition, ExternalWebPanelConfig, RunSummary } from "./types";
@@ -44,6 +55,8 @@ import type { CustomDockPanelDefinition, ExternalWebPanelConfig, RunSummary } fr
 const icons = { activity: Activity, globe: Globe, "list-todo": ListTodo, gauge: Gauge };
 const noRef = () => null;
 const history = createRunHistory();
+const EMPTY_PROVIDERS: readonly ServerProvider[] = [];
+const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
 const GLANCE = "session-glance";
 const EXTERNAL = "external-web";
 const DRAWER = "t3-custom-dock-drawer";
@@ -456,13 +469,78 @@ function RightRailTaskCard({
   );
 }
 
+function RightRailGeminiQuotaSlot({
+  scope,
+  router,
+}: {
+  readonly scope: ScopedThreadRef;
+  readonly router: AppRouter;
+}) {
+  const shell = useQuietThreadShell(scope);
+  const providersByEnvironment = useEnvironmentProviders();
+  const serverConfigs = useServerConfigs();
+  const nowMinute = useNowMinute();
+  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const draftProvider = useComposerDraftStore((store) => {
+    const draft = store.getComposerDraft(scope);
+    return draft?.modelSelectionExplicit === true ? (draft.activeProvider ?? null) : null;
+  });
+  const draftModel = useComposerDraftStore((store) => {
+    const draft = store.getComposerDraft(scope);
+    if (draft?.modelSelectionExplicit !== true || !draft.activeProvider) return null;
+    return draft.modelSelectionByProvider[draft.activeProvider]?.model ?? null;
+  });
+
+  const providerInstanceId =
+    draftProvider ?? shell?.providerInstanceId ?? shell?.modelSelection.instanceId ?? null;
+  const model =
+    (draftProvider !== null && draftProvider === providerInstanceId ? draftModel : null) ??
+    (shell?.modelSelection.instanceId === providerInstanceId ? shell.modelSelection.model : null);
+
+  const providers = providersByEnvironment.get(scope.environmentId) ?? EMPTY_PROVIDERS;
+  const sources =
+    serverConfigs.get(scope.environmentId)?.usageLimitSources ?? EMPTY_USAGE_LIMIT_SOURCES;
+  const now = Date.parse(`${nowMinute}:00Z`);
+  const card = resolveGeminiQuotaCard({
+    providerInstanceId,
+    model,
+    providers,
+    sources,
+    now,
+  });
+  if (!card) return null;
+
+  return (
+    <RightRailGeminiQuotaCard
+      card={card}
+      now={now}
+      refreshing={refreshing}
+      onRefresh={() => {
+        if (refreshing) return;
+        setRefreshing(true);
+        void refreshProviders({
+          environmentId: scope.environmentId,
+          input: { instanceId: card.instanceId },
+        }).finally(() => setRefreshing(false));
+      }}
+      onOpenUsage={() => {
+        void router.navigate({ to: "/usage" });
+      }}
+    />
+  );
+}
+
 function DockSurfaces({
+  router,
   scope,
   composer,
   drawer,
   collapsed,
   registry,
 }: {
+  readonly router: AppRouter;
   readonly scope: ScopedThreadRef | null;
   readonly composer: boolean;
   readonly drawer: boolean;
@@ -481,9 +559,17 @@ function DockSurfaces({
   return (
     <>
       <DockShortcut />
-      {rightRail && snapshot && (
+      {rightRail && scope && (
         <RightRailTaskPortal geometry={rightRail}>
-          <RightRailTaskCard snapshot={snapshot} open={openGlance} />
+          <RightRailGeminiQuotaSlot scope={scope} router={router} />
+          {snapshot && (
+            <section
+              data-custom-dock-right-tasks="inline"
+              className="dropdown-glass pointer-events-auto flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/75 bg-card/95 text-card-foreground shadow-sm"
+            >
+              <RightRailTaskCard snapshot={snapshot} open={openGlance} />
+            </section>
+          )}
         </RightRailTaskPortal>
       )}
       <ComposerAnchorPortal
@@ -542,7 +628,6 @@ function DockThread({
     readonly snapshot: ReturnType<typeof deriveDockSnapshot>;
     readonly runOrdinal: number | null;
     readonly runStartedAtMs: number | null;
-    readonly claude: boolean;
     readonly worktreePath: string | null;
   } | null>(null);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- samples the quiet atom and the server clock on external updates, independently of the local history read
@@ -563,15 +648,11 @@ function DockThread({
         cached,
       );
       const run = latestDockRun(projection);
-      const driver = projection.providerThreads.find(
-        ({ id }) => id === projection.thread.activeProviderThreadId,
-      )?.driver;
       setSampled({
         snapshot,
         runOrdinal: run?.ordinal ?? null,
         runStartedAtMs:
           run && !isTerminalRun(run) ? timestampMs(run.workStartedAt ?? run.startedAt) : null,
-        claude: driver === "claudeAgent",
         worktreePath: projection.thread.worktreePath,
       });
       rememberDockRuns(history, scope, projection.runs, snapshot.recentRuns);
@@ -608,7 +689,6 @@ function DockThread({
         snapshot: sampled?.snapshot ?? null,
         runOrdinal: sampled?.runOrdinal ?? null,
         runStartedAtMs: sampled?.runStartedAtMs ?? null,
-        claude: sampled?.claude === true || shell?.providerInstanceId === "claudeAgent",
         cwd: sampled?.worktreePath ?? project?.workspaceRoot,
         readLiveTps,
       }}
@@ -629,6 +709,7 @@ function DockHostView({ router }: { readonly router: AppRouter }) {
   );
   const view = (
     <DockSurfaces
+      router={router}
       scope={scope}
       drawer={drawer}
       composer={composer}

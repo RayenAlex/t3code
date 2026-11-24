@@ -31,7 +31,6 @@
   "todoWaiting": "等待本轮计划",
   "todoCarried": "延续第 {count} 轮计划",
   "todoCarriedGeneric": "延续上一轮计划",
-  "claudeTodoHelp": "在 Claude Code 中启用 Todo 工具：",
   "eta": "参考剩余时间",
   "etaHelp": "已完成步骤的平均实测耗时 × 剩余步骤数",
   "proposedPlan": "提议的计划",
@@ -114,5 +113,13 @@
   "actionSubagent": "子代理：{detail}",
   "actionSubagentBare": "运行子代理",
   "summaryFiles": "已改 {count} 个文件",
-  "summaryTools": "{count} 次工具调用"
+  "summaryTools": "{count} 次工具调用",
+  "geminiQuota": "Gemini 额度",
+  "quotaFiveHour": "5 小时额度",
+  "quotaWeekly": "周额度",
+  "quotaRemaining": "剩余 {value}%",
+  "quotaRowTooltip": "{label}：剩余 {remaining}%（已用 {used}%）",
+  "quotaUnavailable": "暂无额度数据，点击右上角刷新。",
+  "refreshQuota": "刷新 Gemini 额度",
+  "openUsage": "打开用量页面"
 }

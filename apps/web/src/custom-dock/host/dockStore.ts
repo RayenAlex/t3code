@@ -3,10 +3,11 @@ import { createStore } from "zustand/vanilla";
 import { parseExternalPanelUrl } from "./externalUrl";
 import type { ExternalWebPanelConfig } from "./types";
 
-export const composerMetricKeys = ["output-rate", "tokens", "cache"] as const;
+export const composerMetricKeys = ["context", "output-rate", "tokens", "cache"] as const;
 type MetricKey = (typeof composerMetricKeys)[number];
 
 const KEY = ["t3", "custom-dock", "v1"].join(".");
+const METRICS_VERSION = 2;
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 560;
 
@@ -61,14 +62,20 @@ function readPreferences(storage: Storage | null) {
   const panels = Array.isArray(state?.externalPanels)
     ? state.externalPanels.flatMap((entry: unknown) => panelConfig(entry) ?? [])
     : [];
+  const savedMetricsVersion = typeof state?.metricsVersion === "number" ? state.metricsVersion : 1;
   return {
     drawerOpen: state?.drawerOpen === true,
     drawerWidth: typeof state?.drawerWidth === "number" ? width(state.drawerWidth) : 360,
     activePanelId: typeof state?.activePanelId === "string" ? state.activePanelId : null,
     composerBarEnabled: state?.composerBarEnabled !== false,
     collapsedByThreadKey: collapsed as Record<string, boolean>,
+    metricsVersion: METRICS_VERSION,
     visibleMetrics: Array.isArray(state?.visibleMetrics)
-      ? metrics(state.visibleMetrics)
+      ? metrics(
+          savedMetricsVersion < METRICS_VERSION
+            ? ["context", ...state.visibleMetrics]
+            : state.visibleMetrics,
+        )
       : [...composerMetricKeys],
     externalPanels: [...new Map(panels.map((panel) => [panel.id, panel])).values()],
   };

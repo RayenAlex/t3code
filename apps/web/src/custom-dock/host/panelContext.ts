@@ -14,7 +14,6 @@ type Runtime = {
   readonly snapshot: DockSnapshot | null;
   readonly runOrdinal: number | null;
   readonly runStartedAtMs: number | null;
-  readonly claude: boolean;
   readonly cwd: string | undefined;
   readonly readLiveTps?: (nowMs: number) => number | null;
 };
@@ -23,7 +22,6 @@ export const DockRuntime = createContext<Runtime>({
   snapshot: null,
   runOrdinal: null,
   runStartedAtMs: null,
-  claude: false,
   cwd: undefined,
 });
 

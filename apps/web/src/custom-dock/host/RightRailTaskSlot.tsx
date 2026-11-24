@@ -140,8 +140,8 @@ export function RightRailTaskPortal({
 
   return createPortal(
     <aside
-      data-custom-dock-right-tasks="inline"
-      className="dropdown-glass isolate absolute z-20 flex flex-col overflow-hidden rounded-2xl border border-border/75 bg-card/95 text-card-foreground shadow-sm"
+      data-custom-dock-right-rail="inline"
+      className="pointer-events-none isolate absolute z-20 flex flex-col gap-3"
       style={{
         right: geometry.right,
         top: geometry.top,

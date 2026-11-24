@@ -429,6 +429,8 @@ function SessionGlanceBar() {
     metrics.includes("output-rate") && !showLiveRate && run?.turnAvgOutputTps != null;
   const showTokens = metrics.includes("tokens") && totalTokens !== null;
   const showCache = metrics.includes("cache") && run?.cacheHitRate != null;
+  const contextWindow = snapshot.contextWindow;
+  const showContext = metrics.includes("context") && contextWindow !== null;
   const usageState =
     run?.status === "pending"
       ? copy.pending
@@ -449,6 +451,8 @@ function SessionGlanceBar() {
   const showPrimaryLiveAction = steps.length === 0 && liveLabel !== null;
   const showSecondaryLiveAction = steps.length > 0 && liveLabel !== null;
   const hasProgress = runOrdinal !== null || steps.length > 0 || liveLabel !== null;
+  const showRightMetrics =
+    showContext || showTokens || showCache || showLatestResponse || (showUsageState && usageState);
   return (
     <>
       <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
@@ -502,10 +506,11 @@ function SessionGlanceBar() {
           </span>
         )}
       </span>
-      {(showTokens || showCache || showLatestResponse || (showUsageState && usageState)) && (
-        <span className="flex min-w-0 max-w-1/2 shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
+      {showRightMetrics && (
+        <span className="flex min-w-0 max-w-3/5 shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
+          {showContext && <FooterContextMetric context={contextWindow} />}
           {showTokens && (
-            <FooterMetric>
+            <FooterMetric separated={showContext}>
               {(run?.status === "partial" ? copy.footerReportedTokens : copy.footerTokens).replace(
                 "{value}",
                 COMPACT.format(totalTokens),
@@ -513,21 +518,84 @@ function SessionGlanceBar() {
             </FooterMetric>
           )}
           {showCache && (
-            <span className={showTokens ? "hidden shrink-0 @xs/dock-bar:inline-flex" : "shrink-0"}>
-              <FooterMetric separated={showTokens}>
+            <span
+              className={
+                showContext || showTokens ? "hidden shrink-0 @xs/dock-bar:inline-flex" : "shrink-0"
+              }
+            >
+              <FooterMetric separated={showContext || showTokens}>
                 {copy.footerCache.replace("{value}", percent(run.cacheHitRate))}
               </FooterMetric>
             </span>
           )}
           {showLatestResponse && (
-            <FooterMetric>
+            <FooterMetric separated={showContext}>
               {copy.footerLatestResponse.replace("{value}", COMPACT.format(latestResponseTokens))}
             </FooterMetric>
           )}
-          {showUsageState && usageState && <span className="truncate">{usageState}</span>}
+          {showUsageState && usageState && (
+            <FooterMetric separated={showContext}>{usageState}</FooterMetric>
+          )}
         </span>
       )}
     </>
+  );
+}
+
+function FooterContextMetric({
+  context,
+}: {
+  readonly context: NonNullable<DockSnapshot["contextWindow"]>;
+}) {
+  const copy = useDockCopy();
+  const pct =
+    context.usedPercentage === null ? null : Math.min(100, Math.max(0, context.usedPercentage));
+  const isCritical = pct !== null && pct >= 90;
+  const isWarning =
+    !isCritical &&
+    ((pct !== null && pct >= 75) ||
+      (context.autoCompactThreshold !== null &&
+        context.usedTokens >= context.autoCompactThreshold));
+  const textTone = isCritical
+    ? "text-destructive-foreground"
+    : isWarning
+      ? "text-warning-foreground"
+      : undefined;
+  const fillTone = isCritical
+    ? "bg-destructive-foreground"
+    : isWarning
+      ? "bg-warning-foreground"
+      : "bg-primary";
+  const detail =
+    context.maxTokens !== null && pct !== null
+      ? `${copy.context} ${number(context.usedTokens)} / ${number(context.maxTokens)} (${percent(pct / 100)})`
+      : `${copy.context} ${number(context.usedTokens)}`;
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 tabular-nums ${textTone ?? ""}`}
+      aria-label={detail}
+    >
+      {pct !== null && (
+        <span
+          aria-hidden="true"
+          className="inline-block h-1.5 w-7 shrink-0 overflow-hidden rounded-full bg-muted"
+        >
+          <span
+            className={`block h-full rounded-full ${fillTone}`}
+            style={{ width: `${Math.max(pct, pct > 0 ? 6 : 0)}%` }}
+          />
+        </span>
+      )}
+      <span>
+        {pct !== null ? percent(pct / 100) : COMPACT.format(context.usedTokens)}
+        {context.maxTokens !== null && pct !== null && (
+          <span className="hidden text-muted-foreground/80 @xs/dock-bar:inline">
+            {" "}
+            ({COMPACT.format(context.usedTokens)}/{COMPACT.format(context.maxTokens)})
+          </span>
+        )}
+      </span>
+    </span>
   );
 }
 
@@ -609,7 +677,7 @@ export function ComposerTaskPlan({
   readonly compact?: boolean;
 }) {
   const copy = useDockCopy();
-  const { runStartedAtMs, claude } = useDockRuntime();
+  const { runStartedAtMs } = useDockRuntime();
   const { plans, activity } = snapshot;
   const liveLabel = formatLiveAction(activity.liveAction, copy);
   const carriedLabel = carriedPlanLabel(plans, copy);
@@ -639,12 +707,6 @@ export function ComposerTaskPlan({
       <div className={`space-y-2 ${pad} ${compact ? "text-xs" : "text-sm"} text-muted-foreground`}>
         {activityStrip}
         <p>{liveLabel !== null ? copy.todoWaiting : copy.todoNotProvided}</p>
-        {claude && (
-          <p>
-            {copy.claudeTodoHelp}{" "}
-            <code className="wrap-anywhere">CLAUDE_CODE_ENABLE_TODO_TOOLS=1</code>
-          </p>
-        )}
       </div>
     );
   const done = plans.steps.filter((step) => step.stage === "Done").length;
@@ -742,7 +804,7 @@ function TodoPanel({
   readonly details: boolean;
 }) {
   const copy = useDockCopy();
-  const { claude, cwd, runStartedAtMs } = useDockRuntime();
+  const { cwd, runStartedAtMs } = useDockRuntime();
   const { plans, activity, threadMeta } = snapshot;
   const done = plans.steps.filter((step) => step.stage === "Done").length;
   const referenceEtaMs = plans.referenceEtaMs;
@@ -790,12 +852,6 @@ function TodoPanel({
         ) : (
           <div className="space-y-1 text-xs text-muted-foreground">
             <p>{liveLabel !== null ? copy.todoWaiting : copy.todoNotProvided}</p>
-            {claude && (
-              <p>
-                {copy.claudeTodoHelp}{" "}
-                <code className="wrap-anywhere">CLAUDE_CODE_ENABLE_TODO_TOOLS=1</code>
-              </p>
-            )}
           </div>
         )}
       </Card>
