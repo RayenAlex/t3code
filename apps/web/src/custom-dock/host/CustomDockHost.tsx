@@ -9,6 +9,7 @@ import { useStore } from "zustand";
 import { RenderErrorBoundary } from "../../components/RenderErrorBoundary";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
+import { observeResize } from "../../lib/observeResize";
 import type { AppRouter } from "../../router";
 import { useProject, useQuietThreadProjection, useQuietThreadShell } from "../../state/entities";
 import { resolveThreadRouteRef } from "../../threadRoutes";
@@ -35,6 +36,7 @@ const metricOrder = ["context", "elapsed", "tokens", "cache", "output-rate"] as 
 const GLANCE = "session-glance";
 const EXTERNAL = "external-web";
 const DRAWER = "t3-custom-dock-drawer";
+const COMPOSER_STACK = '[data-chat-composer-stack="true"]';
 
 function threadRoute(router: AppRouter) {
   let current: ScopedThreadRef | null = null;
@@ -179,6 +181,30 @@ function DockPreferences({ scope }: { readonly scope: ScopedThreadRef | null }) 
   );
 }
 
+function drawerBottomInset(width: number) {
+  const anchor = document.querySelector(COMPOSER_STACK);
+  const bounds = anchor?.getBoundingClientRect();
+  if (!bounds || bounds.width === 0 || bounds.right + 12 <= window.innerWidth - width) return 0;
+  const bar = anchor?.querySelector("[data-custom-dock-compact-bar]");
+  const top = Math.min(bounds.top, bar?.getBoundingClientRect().top ?? Infinity);
+  return Math.max(0, Math.min(window.innerHeight - 96, Math.ceil(window.innerHeight - top + 8)));
+}
+
+function subscribeDrawerLayout(notify: () => void) {
+  const anchor = document.querySelector(COMPOSER_STACK);
+  const targets = [
+    anchor,
+    anchor?.parentElement,
+    anchor?.querySelector("[data-custom-dock-compact-bar]"),
+  ].filter((node): node is Element => node != null);
+  const stop = observeResize(targets, notify);
+  window.addEventListener("resize", notify);
+  return () => {
+    stop();
+    window.removeEventListener("resize", notify);
+  };
+}
+
 function DockDrawer({
   scope,
   registry,
@@ -188,6 +214,11 @@ function DockDrawer({
 }) {
   const copy = useDockCopy();
   const width = useStore(dockPreferences, (state) => state.drawerWidth);
+  const bottom = useSyncExternalStore(
+    subscribeDrawerLayout,
+    () => (scope === null ? 0 : drawerBottomInset(width)),
+    () => 0,
+  );
   const selected = useStore(dockPreferences, (state) => state.activePanelId);
   const external = useStore(dockPreferences, (state) => state.externalPanels);
   const panels =
@@ -198,8 +229,8 @@ function DockDrawer({
     <aside
       id={DRAWER}
       aria-label={copy.dock}
-      className="fixed inset-y-0 right-0 z-50 flex max-w-full flex-col border-l border-border bg-card text-card-foreground shadow-2xl"
-      style={{ width }}
+      className="fixed top-0 right-0 z-50 flex max-w-full flex-col border-l border-border bg-card text-card-foreground shadow-2xl"
+      style={{ width, bottom }}
     >
       <ResizeHandle width={width} />
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2.5">
@@ -287,6 +318,38 @@ function Launcher({
   );
 }
 
+export function CompactBar({
+  open,
+  close,
+  children,
+}: {
+  readonly open: () => void;
+  readonly close?: (() => void) | undefined;
+  readonly children: ReactNode;
+}) {
+  const copy = useDockCopy();
+  return (
+    <div
+      data-custom-dock-compact-bar
+      className="@container/dock-bar pointer-events-auto flex w-full min-w-0 max-w-full items-center gap-0.5 rounded-xl border border-border bg-card px-1.5 py-0.5 shadow-sm"
+    >
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left outline-none focus-visible:ring-inset focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={open}
+        aria-label={copy.openDock}
+      >
+        {children}
+      </button>
+      {close && (
+        <Button variant="ghost" size="icon-xs" aria-label={copy.hideBar} onClick={close}>
+          <X />
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function DockSurfaces({
   scope,
   composer,
@@ -315,33 +378,20 @@ function DockSurfaces({
         threadActive={scope !== null && composer && !collapsed}
         fallback={<Launcher />}
       >
-        <div
-          data-custom-dock-compact-bar
-          className="pointer-events-auto flex max-w-full items-center gap-0.5 rounded-xl border border-border bg-card px-1.5 py-0.5 shadow-sm"
+        <CompactBar
+          open={openGlance}
+          close={
+            scope
+              ? () => dockPreferences.getState().setThreadCollapsed(threadKey(scope), true)
+              : undefined
+          }
         >
-          <button
-            type="button"
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left outline-none focus-visible:ring-inset focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={openGlance}
-            aria-label={copy.openDock}
-          >
-            {snapshot ? (
-              glance?.renderComposerBar?.(snapshot)
-            ) : (
-              <span className="py-1 text-xs text-muted-foreground">{copy.loading}</span>
-            )}
-          </button>
-          {scope && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label={copy.hideBar}
-              onClick={() => dockPreferences.getState().setThreadCollapsed(threadKey(scope), true)}
-            >
-              <X />
-            </Button>
+          {snapshot ? (
+            glance?.renderComposerBar?.(snapshot)
+          ) : (
+            <span className="py-1 text-xs text-muted-foreground">{copy.loading}</span>
           )}
-        </div>
+        </CompactBar>
       </ComposerAnchorPortal>
       {(scope === null || !composer || collapsed) && !drawer && (
         <div className="fixed right-4 bottom-4 z-40">

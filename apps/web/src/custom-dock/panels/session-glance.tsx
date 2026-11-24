@@ -126,10 +126,10 @@ function SessionGlanceBar() {
         <Phase phase={snapshot.activity.phase} />
         {steps.length > 0 && (
           <span
-            className="flex shrink-0 items-center gap-1.5 font-mono text-3xs text-muted-foreground"
+            className="flex shrink-0 items-center gap-1.5 font-mono text-3xs whitespace-nowrap text-muted-foreground"
             aria-label={copy.plan}
           >
-            <span className="hidden w-8 sm:inline-flex">
+            <span className="hidden w-8 @sm/dock-bar:inline-flex">
               <Progress done={done} total={steps.length} />
             </span>
             {done}/{steps.length}
@@ -139,7 +139,7 @@ function SessionGlanceBar() {
           {active}
         </span>
       </span>
-      <span className="hidden shrink-0 items-center gap-1.5 font-mono text-3xs text-muted-foreground lg:flex">
+      <span className="hidden shrink-0 items-center gap-1.5 font-mono text-3xs whitespace-nowrap text-muted-foreground @lg/dock-bar:flex">
         {metrics.includes("context") && ctxLabel && (
           <MetricPill help={copy.context}>
             {copy.contextShort} {ctxLabel}

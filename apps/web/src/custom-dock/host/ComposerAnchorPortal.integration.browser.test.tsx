@@ -1,7 +1,9 @@
 import { expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 
 import { act, render } from "../../../test/render";
 import { ComposerAnchorPortal } from "./ComposerAnchorPortal";
+import { CompactBar } from "./CustomDockHost";
 
 it("leaves input focus intact while moving between the composer and the floating launcher", async () => {
   const column = document.createElement("div");
@@ -33,4 +35,20 @@ it("leaves input focus intact while moving between the composer and the floating
   await vi.waitFor(() => expect(document.querySelector('[data-dock-test="pill"]')).not.toBeNull());
   await act(() => column.append(anchor));
   await vi.waitFor(() => expect(anchor.querySelector('[data-dock-test="bar"]')).not.toBeNull());
+});
+
+it("keeps an accessible collapse action in a narrow composer", async () => {
+  const collapse = vi.fn();
+  const container = document.createElement("div");
+  container.style.width = "280px";
+  await using screen = await render(
+    <CompactBar open={() => undefined} close={collapse}>
+      <span className="truncate">A long current step from the structured Todo list</span>
+    </CompactBar>,
+    { container },
+  );
+  const hide = screen.getByRole("button", { name: "Collapse compact bar" });
+  await expect.element(hide).toBeVisible();
+  await userEvent.click(hide);
+  expect(collapse).toHaveBeenCalledTimes(1);
 });
