@@ -1,12 +1,15 @@
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import type { ComposerPlacement } from "./uiContract";
 
 const COMPOSER = '[data-chat-composer-stack="true"]';
+const SURFACE = '[data-chat-composer-main-surface="true"]';
+const OVERLAY = '[data-chat-composer-overlay="true"]';
 const HIDDEN = '[data-chat-column-maximized-away="true"], [hidden], [inert]';
 const ATTRIBUTES = [
   "data-chat-composer-stack",
+  "data-chat-composer-main-surface",
   "data-chat-column-maximized-away",
   "hidden",
   "inert",
@@ -22,9 +25,11 @@ export function resolveComposerPlacement(
 }
 
 function readAnchor(): HTMLElement | null {
-  const anchors = document.querySelectorAll<HTMLElement>(COMPOSER);
-  for (const anchor of anchors) {
-    if (!anchor.closest(HIDDEN)) return anchor;
+  for (const stack of document.querySelectorAll<HTMLElement>(COMPOSER)) {
+    if (stack.closest(HIDDEN) || stack.closest("[data-right-panel-surface-content]")) continue;
+    const surface = stack.querySelector<HTMLElement>(SURFACE);
+    if (surface && !surface.closest(HIDDEN)) return surface;
+    if (!surface && !stack.closest(OVERLAY)) return stack;
   }
   return null;
 }
@@ -32,8 +37,14 @@ function readAnchor(): HTMLElement | null {
 function subscribeAnchor(notify: () => void): () => void {
   let previous: HTMLElement | null = null;
   const observer = new MutationObserver(update);
-  function update() {
+  function update(records?: readonly MutationRecord[]) {
+    if (
+      previous &&
+      records?.every((record) => (record.type === "childList" ? record.target === previous : false))
+    )
+      return;
     const anchor = readAnchor();
+    if (previous === anchor && records) return;
     observer.disconnect();
     const options = { childList: true, attributes: true, attributeFilter: ATTRIBUTES };
     if (!anchor) observer.observe(document.body, { ...options, subtree: true });
@@ -53,9 +64,29 @@ function subscribeAnchor(notify: () => void): () => void {
 const noAnchor = () => null;
 const noSubscription = () => () => undefined;
 
+function ComposerFooter({
+  anchor,
+  children,
+}: {
+  readonly anchor: HTMLElement;
+  readonly children: ReactNode | ((anchor: HTMLElement) => ReactNode);
+}) {
+  const [mount] = useState(() => {
+    const node = document.createElement("div");
+    node.dataset.dockPlacement = "anchored";
+    return node;
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- appends and removes the isolated portal slot in the native composer's footer
+  useLayoutEffect(() => {
+    anchor.append(mount);
+    return () => mount.remove();
+  }, [anchor, mount]);
+  return createPortal(typeof children === "function" ? children(anchor) : children, mount);
+}
+
 export function ComposerAnchorPortal(props: {
   readonly threadActive: boolean;
-  readonly children: ReactNode;
+  readonly children: ReactNode | ((anchor: HTMLElement) => ReactNode);
   readonly fallback: ReactNode;
 }) {
   const anchor = useSyncExternalStore(
@@ -65,20 +96,14 @@ export function ComposerAnchorPortal(props: {
   );
   if (resolveComposerPlacement(props.threadActive, anchor !== null, false) === "hidden")
     return null;
-  return anchor
-    ? createPortal(
-        <div
-          data-dock-placement="anchored"
-          className="pointer-events-none absolute inset-x-0 bottom-full z-20 mb-1.5 flex justify-center px-1"
-        >
-          {props.children}
-        </div>,
-        anchor,
-      )
-    : createPortal(
-        <div data-dock-placement="floating" className="fixed right-4 bottom-4 z-40">
-          {props.fallback}
-        </div>,
-        document.body,
-      );
+  return anchor ? (
+    <ComposerFooter anchor={anchor}>{props.children}</ComposerFooter>
+  ) : (
+    createPortal(
+      <div data-dock-placement="floating" className="fixed right-4 bottom-4 z-40">
+        {props.fallback}
+      </div>,
+      document.body,
+    )
+  );
 }

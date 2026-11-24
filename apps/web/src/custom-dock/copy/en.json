@@ -42,7 +42,6 @@
   "unchecked": "Unchecked",
   "unknown": "Unknown",
   "context": "Context window",
-  "contextShort": "Ctx",
   "compactThreshold": "Auto-compact threshold",
   "elapsed": "Run time",
   "wallTime": "Includes tools and waits",
@@ -83,5 +82,16 @@
   "invalidUrl": "Use an HTTPS URL or HTTP on localhost or 127.0.0.1, without credentials or the host origin.",
   "save": "Save",
   "cancel": "Cancel",
-  "openOutside": "Open in browser"
+  "openOutside": "Open in browser",
+  "tasks": "Task coordination",
+  "openTasks": "Open task coordination",
+  "closeTasks": "Collapse task coordination",
+  "collapseTasks": "Collapse",
+  "footerRun": "Run {count}",
+  "footerSteps": "{done}/{total} steps",
+  "footerRate": "{value} tok/s",
+  "footerTokens": "This run: {value} tokens",
+  "footerReportedTokens": "Reported: {value} tokens",
+  "footerCache": "Cache hit {value}",
+  "footerLatestResponse": "Latest response: {value} tokens"
 }

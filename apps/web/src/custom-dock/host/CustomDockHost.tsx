@@ -1,8 +1,11 @@
+import { Popover } from "@base-ui/react/popover";
 import { Tabs } from "@base-ui/react/tabs";
+import { toServerClock } from "@t3tools/client-runtime/clock";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
+import type { EnvironmentThreadStructure } from "@t3tools/client-runtime/state/shell";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { Activity, Gauge, Globe, ListTodo, PanelRight, X } from "lucide-react";
+import { Activity, ChevronUp, Gauge, Globe, ListTodo, PanelRight, X } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useStore } from "zustand";
 
@@ -10,29 +13,26 @@ import { RenderErrorBoundary } from "../../components/RenderErrorBoundary";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { observeResize } from "../../lib/observeResize";
+import { appAtomRegistry } from "../../rpc/atomRegistry";
 import type { AppRouter } from "../../router";
-import { useProject, useQuietThreadProjection, useQuietThreadShell } from "../../state/entities";
+import { useProject, useQuietThreadShell } from "../../state/entities";
+import { environmentThreadDetails } from "../../state/threads";
 import { resolveThreadRouteRef } from "../../threadRoutes";
 import { createRunHistory } from "../core/historyDb";
 import { latestDockRun, isTerminalRun, timestampMs } from "../core/runStructure";
-import { observeThread } from "../core/threadObserver";
+import { deriveDockSnapshot, rememberDockRuns } from "../core/threadObserver";
 import { ExternalPanelFrame, ExternalWebSettings } from "../panels/external-web";
+import { ComposerTaskPlan } from "../panels/session-glance";
 import { ComposerAnchorPortal } from "./ComposerAnchorPortal";
 import { DockTab, DockTabList } from "./DockTabs";
-import {
-  DockRuntime,
-  dockPreferences,
-  useDockCopy,
-  useDockRuntime,
-  type DockSnapshot,
-} from "./panelContext";
+import { composerMetricKeys } from "./dockStore";
+import { DockRuntime, dockPreferences, useDockCopy, useDockRuntime } from "./panelContext";
 import { resolveDockPanels } from "./registry";
-import type { CustomDockPanelDefinition, ExternalWebPanelConfig } from "./types";
+import type { CustomDockPanelDefinition, ExternalWebPanelConfig, RunSummary } from "./types";
 
 const icons = { activity: Activity, globe: Globe, "list-todo": ListTodo, gauge: Gauge };
 const noRef = () => null;
 const history = createRunHistory();
-const metricOrder = ["context", "elapsed", "tokens", "cache", "output-rate"] as const;
 const GLANCE = "session-glance";
 const EXTERNAL = "external-web";
 const DRAWER = "t3-custom-dock-drawer";
@@ -159,7 +159,7 @@ function DockPreferences({ scope }: { readonly scope: ScopedThreadRef | null }) 
         )}
         <fieldset className="flex flex-wrap gap-2.5">
           <legend className="mb-2 font-medium">{copy.metrics}</legend>
-          {metricOrder.map((metric) => (
+          {composerMetricKeys.map((metric) => (
             <label key={metric} className="flex items-center gap-1.5">
               <Checkbox
                 checked={visible.includes(metric)}
@@ -185,18 +185,15 @@ function drawerBottomInset(width: number) {
   const anchor = document.querySelector(COMPOSER_STACK);
   const bounds = anchor?.getBoundingClientRect();
   if (!bounds || bounds.width === 0 || bounds.right + 12 <= window.innerWidth - width) return 0;
-  const bar = anchor?.querySelector("[data-custom-dock-compact-bar]");
-  const top = Math.min(bounds.top, bar?.getBoundingClientRect().top ?? Infinity);
-  return Math.max(0, Math.min(window.innerHeight - 96, Math.ceil(window.innerHeight - top + 8)));
+  return Math.max(
+    0,
+    Math.min(window.innerHeight - 96, Math.ceil(window.innerHeight - bounds.top + 8)),
+  );
 }
 
 function subscribeDrawerLayout(notify: () => void) {
   const anchor = document.querySelector(COMPOSER_STACK);
-  const targets = [
-    anchor,
-    anchor?.parentElement,
-    anchor?.querySelector("[data-custom-dock-compact-bar]"),
-  ].filter((node): node is Element => node != null);
+  const targets = [anchor, anchor?.parentElement].filter((node): node is Element => node != null);
   const stop = observeResize(targets, notify);
   window.addEventListener("resize", notify);
   return () => {
@@ -318,33 +315,84 @@ function Launcher({
   );
 }
 
+const FOOTER_ROW =
+  "@container/dock-bar mx-3 flex min-w-0 items-center gap-1 border-t border-border/65 sm:mx-4";
+const FOOTER_TRIGGER =
+  "group/dock-footer flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md text-left text-xs text-muted-foreground tabular-nums outline-none hover:text-foreground focus-visible:ring-inset focus-visible:ring-2 focus-visible:ring-ring";
+
 export function CompactBar({
+  anchor,
+  panel,
   open,
   close,
   children,
 }: {
+  readonly anchor?: HTMLElement | undefined;
+  readonly panel?: ReactNode;
   readonly open: () => void;
   readonly close?: (() => void) | undefined;
   readonly children: ReactNode;
 }) {
   const copy = useDockCopy();
   return (
-    <div
-      data-custom-dock-compact-bar
-      className="@container/dock-bar pointer-events-auto flex w-full min-w-0 max-w-full items-center gap-0.5 rounded-xl border border-border bg-card px-1.5 py-0.5 shadow-sm"
-    >
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left outline-none focus-visible:ring-inset focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={open}
-        aria-label={copy.openDock}
-      >
-        {children}
-      </button>
+    <div data-custom-dock-compact-bar className={FOOTER_ROW}>
+      {panel == null ? (
+        <button type="button" className={FOOTER_TRIGGER} onClick={open} aria-label={copy.openDock}>
+          {children}
+        </button>
+      ) : (
+        <Popover.Root>
+          <Popover.Trigger aria-label={copy.openTasks} className={FOOTER_TRIGGER}>
+            {children}
+            <ChevronUp
+              aria-hidden="true"
+              className="size-3 shrink-0 opacity-70 group-aria-expanded/dock-footer:rotate-180"
+            />
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Positioner
+              anchor={anchor}
+              side="top"
+              sideOffset={10}
+              collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+              className="z-[130] w-(--anchor-width) max-w-[calc(100vw-1rem)]"
+            >
+              <Popover.Popup
+                data-custom-dock-task-panel
+                className="flex max-h-[min(var(--available-height),55dvh)] min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-xl outline-none"
+              >
+                <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border/65 px-4 py-2">
+                  <Popover.Title className="min-w-0 truncate text-sm font-semibold">
+                    {copy.tasks}
+                  </Popover.Title>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Popover.Close
+                      render={<Button variant="ghost" size="icon-xs" />}
+                      aria-label={copy.openDock}
+                      onClick={open}
+                    >
+                      <PanelRight aria-hidden="true" />
+                    </Popover.Close>
+                    <Popover.Close
+                      render={<Button variant="secondary" size="xs" />}
+                      aria-label={copy.closeTasks}
+                    >
+                      {copy.collapseTasks}
+                    </Popover.Close>
+                  </div>
+                </header>
+                <div className="min-h-0 overflow-y-auto overscroll-contain">{panel}</div>
+              </Popover.Popup>
+            </Popover.Positioner>
+          </Popover.Portal>
+        </Popover.Root>
+      )}
       {close && (
-        <Button variant="ghost" size="icon-xs" aria-label={copy.hideBar} onClick={close}>
-          <X />
-        </Button>
+        <span className="shrink-0 opacity-65 focus-within:opacity-100 hover:opacity-100">
+          <Button variant="ghost-muted" size="icon-xs" aria-label={copy.hideBar} onClick={close}>
+            <X aria-hidden="true" />
+          </Button>
+        </span>
       )}
     </div>
   );
@@ -375,25 +423,37 @@ function DockSurfaces({
     <>
       <DockShortcut />
       <ComposerAnchorPortal
-        threadActive={scope !== null && composer && !collapsed}
-        fallback={<Launcher />}
+        threadActive={scope !== null && composer}
+        fallback={<Launcher restore={collapsed} onRestore={restore} />}
       >
-        <CompactBar
-          open={openGlance}
-          close={
-            scope
-              ? () => dockPreferences.getState().setThreadCollapsed(threadKey(scope), true)
-              : undefined
-          }
-        >
-          {snapshot ? (
-            glance?.renderComposerBar?.(snapshot)
+        {(anchor) =>
+          collapsed ? (
+            <div className="flex justify-end border-t border-border/65 px-3 py-0.5">
+              <Button size="xs" variant="ghost-muted" onClick={restore}>
+                {copy.restoreBar}
+              </Button>
+            </div>
           ) : (
-            <span className="py-1 text-xs text-muted-foreground">{copy.loading}</span>
-          )}
-        </CompactBar>
+            <CompactBar
+              anchor={anchor}
+              open={openGlance}
+              panel={snapshot ? <ComposerTaskPlan snapshot={snapshot} /> : null}
+              close={
+                scope
+                  ? () => dockPreferences.getState().setThreadCollapsed(threadKey(scope), true)
+                  : undefined
+              }
+            >
+              {snapshot ? (
+                glance?.renderComposerBar?.(snapshot)
+              ) : (
+                <span className="py-1 text-xs text-muted-foreground">{copy.loading}</span>
+              )}
+            </CompactBar>
+          )
+        }
       </ComposerAnchorPortal>
-      {(scope === null || !composer || collapsed) && !drawer && (
+      {(scope === null || !composer) && !drawer && (
         <div className="fixed right-4 bottom-4 z-40">
           <Launcher restore={scope !== null} onRestore={restore} />
         </div>
@@ -410,34 +470,68 @@ function DockThread({
   readonly scope: ScopedThreadRef;
   readonly children: ReactNode;
 }) {
-  const source = useQuietThreadProjection(scope);
   const shell = useQuietThreadShell(scope);
-  const projection = source?.projection ?? null;
   const project = useProject(shell ? scopeProjectRef(scope.environmentId, shell.projectId) : null);
-  const [observed, setObserved] = useState<DockSnapshot | null>(null);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hydrates scoped IndexedDB history when the quiet projection changes
+  const [sampled, setSampled] = useState<{
+    readonly snapshot: ReturnType<typeof deriveDockSnapshot>;
+    readonly runOrdinal: number | null;
+    readonly runStartedAtMs: number | null;
+    readonly claude: boolean;
+    readonly worktreePath: string | null;
+  } | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- samples the quiet atom and the server clock on external updates, independently of the local history read
   useEffect(() => {
-    if (!projection) return;
     let keep = true;
-    void observeThread(() => projection, history, scope, Date.now()).then((snapshot) => {
-      if (keep) setObserved(snapshot);
-    });
+    let cached: readonly RunSummary[] = [];
+    const atom = environmentThreadDetails.quietThreadAtom(scope);
+    const update = (value: EnvironmentThreadStructure | null) => {
+      const projection = value?.projection;
+      if (!projection) {
+        setSampled(null);
+        return;
+      }
+      const snapshot = deriveDockSnapshot(
+        projection,
+        scope,
+        toServerClock(scope.environmentId, Date.now()),
+        cached,
+      );
+      const run = latestDockRun(projection);
+      const driver = projection.providerThreads.find(
+        ({ id }) => id === projection.thread.activeProviderThreadId,
+      )?.driver;
+      setSampled({
+        snapshot,
+        runOrdinal: run?.ordinal ?? null,
+        runStartedAtMs:
+          run && !isTerminalRun(run) ? timestampMs(run.workStartedAt ?? run.startedAt) : null,
+        claude: driver === "claudeAgent",
+        worktreePath: projection.thread.worktreePath,
+      });
+      rememberDockRuns(history, scope, projection.runs, snapshot.recentRuns);
+    };
+    const unsubscribe = appAtomRegistry.subscribe(atom, update, { immediate: true });
+    void history
+      .list(scope)
+      .then((rows) => {
+        if (!keep || rows.length === 0) return;
+        cached = rows;
+        update(appAtomRegistry.get(atom));
+      })
+      .catch(() => {});
     return () => {
       keep = false;
+      unsubscribe();
     };
-  }, [projection, scope]);
-  const run = projection ? latestDockRun(projection) : null;
-  const start = run && !isTerminalRun(run) ? timestampMs(run.workStartedAt ?? run.startedAt) : null;
-  const driver = projection?.providerThreads.find(
-    (row) => row.id === projection.thread.activeProviderThreadId,
-  )?.driver;
+  }, [scope]);
   return (
     <DockRuntime
       value={{
-        snapshot: projection ? observed : null,
-        runStartedAtMs: observed?.currentRun?.runId === run?.id ? start : null,
-        claude: driver === "claudeAgent" || shell?.providerInstanceId === "claudeAgent",
-        cwd: projection?.thread.worktreePath ?? project?.workspaceRoot,
+        snapshot: sampled?.snapshot ?? null,
+        runOrdinal: sampled?.runOrdinal ?? null,
+        runStartedAtMs: sampled?.runStartedAtMs ?? null,
+        claude: sampled?.claude === true || shell?.providerInstanceId === "claudeAgent",
+        cwd: sampled?.worktreePath ?? project?.workspaceRoot,
       }}
     >
       {children}

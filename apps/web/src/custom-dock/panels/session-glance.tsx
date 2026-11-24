@@ -1,8 +1,22 @@
 import { Tabs } from "@base-ui/react/tabs";
+import { toServerClock } from "@t3tools/client-runtime/clock";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { formatWorkingDurationLabel } from "@t3tools/client-runtime/state/shell";
 import { isAbsolutePath, workspaceRelativeFilePath } from "@t3tools/shared/path";
 import { useMessages } from "gt-react";
-import { Activity, ChevronRight, FileCode2, GitCompare, ListTodo, Timer } from "lucide-react";
+import {
+  Activity,
+  Check,
+  ChevronRight,
+  Circle,
+  CircleAlert,
+  CircleCheck,
+  CircleDot,
+  FileCode2,
+  GitCompare,
+  ListTodo,
+  Timer,
+} from "lucide-react";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
 
@@ -59,9 +73,11 @@ function percent(value: number | null | undefined) {
 function ClockLabel({
   elapsedMs,
   startedAtMs,
+  environmentId,
 }: {
   readonly elapsedMs: number;
   readonly startedAtMs: number | null;
+  readonly environmentId?: EnvironmentId;
 }) {
   const messages = useMessages();
   return (
@@ -70,7 +86,13 @@ function ClockLabel({
       ref={tickTextContent(
         (now) =>
           formatWorkingDurationLabel(
-            startedAtMs === null ? elapsedMs : Math.max(0, now - startedAtMs),
+            startedAtMs === null
+              ? elapsedMs
+              : Math.max(
+                  0,
+                  (environmentId === undefined ? now : toServerClock(environmentId, now)) -
+                    startedAtMs,
+                ),
             messages,
           ),
         startedAtMs !== null,
@@ -104,75 +126,134 @@ function Progress({ done, total }: { readonly done: number; readonly total: numb
 
 function SessionGlanceBar() {
   const copy = useDockCopy();
-  const { snapshot, runStartedAtMs } = useDockRuntime();
+  const { snapshot, runOrdinal, runStartedAtMs } = useDockRuntime();
   const metrics = useStore(dockPreferences, (state) => state.visibleMetrics);
   if (!snapshot) return null;
+  const { phase } = snapshot.activity;
+  const Status =
+    phase === "done"
+      ? CircleCheck
+      : phase === "error" || phase === "needs_you" || phase === "stuck"
+        ? CircleAlert
+        : CircleDot;
+  const statusTone =
+    phase === "done"
+      ? "text-success-foreground"
+      : phase === "error"
+        ? "text-destructive-foreground"
+        : phase === "needs_you" || phase === "stuck"
+          ? "text-warning-foreground"
+          : phase === "working"
+            ? "text-info-foreground"
+            : "text-muted-foreground";
   const steps = snapshot.plans.steps;
   const done = steps.filter((step) => step.stage === "Done").length;
-  const active =
-    steps.find((step) => step.stage === "Now")?.label ??
-    snapshot.activity.activeTool ??
-    copy[snapshot.activity.phase];
   const run = snapshot.currentRun;
-  const ctx = snapshot.contextWindow;
-  const ctxLabel =
-    ctx &&
-    (ctx.usedPercentage === null
-      ? COMPACT.format(ctx.usedTokens)
-      : percent(ctx.usedPercentage / 100));
+  const counters = run?.tokenUsage;
+  const totalTokens =
+    counters?.inputTokens != null && counters.outputTokens != null
+      ? counters.inputTokens + counters.outputTokens
+      : null;
+  const showRate = metrics.includes("output-rate") && run?.turnAvgOutputTps != null;
+  const showTokens = metrics.includes("tokens") && totalTokens !== null;
+  const showCache = metrics.includes("cache") && run?.cacheHitRate != null;
+  const usageState =
+    run?.status === "pending"
+      ? copy.pending
+      : run?.isLocalCommandOnly
+        ? copy.local
+        : run?.status === "unavailable"
+          ? copy.unavailable
+          : null;
+  const latestResponseTokens = snapshot.latestResponseTokens;
+  const showLatestResponse =
+    metrics.includes("tokens") && !showTokens && latestResponseTokens != null;
+  const showUsageState =
+    (metrics.includes("tokens") || metrics.includes("cache")) &&
+    !showTokens &&
+    !showCache &&
+    !showLatestResponse;
+  const showClock = runStartedAtMs !== null;
+  const hasProgress = runOrdinal !== null || steps.length > 0;
   return (
     <>
-      <span className="flex min-w-0 flex-1 items-center gap-2 text-xs">
-        <Phase phase={snapshot.activity.phase} />
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+        <Status className={`size-3.5 shrink-0 ${statusTone}`} aria-hidden="true" />
+        <span className={hasProgress ? "sr-only" : "truncate"}>{copy[phase]}</span>
+        {runOrdinal !== null && (
+          <span className="shrink-0">{copy.footerRun.replace("{count}", number(runOrdinal))}</span>
+        )}
         {steps.length > 0 && (
+          <FooterMetric separated={runOrdinal !== null}>
+            {copy.footerSteps
+              .replace("{done}", number(done))
+              .replace("{total}", number(steps.length))}
+          </FooterMetric>
+        )}
+        {showClock && (
+          <FooterMetric separated={hasProgress}>
+            <ClockLabel
+              elapsedMs={run?.elapsedMs ?? 0}
+              startedAtMs={runStartedAtMs}
+              environmentId={snapshot.threadMeta.environmentId}
+            />
+          </FooterMetric>
+        )}
+        {showRate && (
           <span
-            className="flex shrink-0 items-center gap-1.5 font-mono text-3xs whitespace-nowrap text-muted-foreground"
-            aria-label={copy.plan}
+            className="hidden shrink-0 @xs/dock-bar:inline-flex"
+            aria-label={`${copy.avgTps} · ${copy.wallTime}`}
           >
-            <span className="hidden w-8 @sm/dock-bar:inline-flex">
-              <Progress done={done} total={steps.length} />
-            </span>
-            {done}/{steps.length}
+            <FooterMetric separated={hasProgress || showClock}>
+              {copy.footerRate.replace("{value}", number(run.turnAvgOutputTps))}
+            </FooterMetric>
           </span>
         )}
-        <span className="truncate text-muted-foreground" aria-label={active}>
-          {active}
+      </span>
+      {(showTokens || showCache || showLatestResponse || (showUsageState && usageState)) && (
+        <span className="flex min-w-0 max-w-1/2 shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
+          {showTokens && (
+            <FooterMetric>
+              {(run?.status === "partial" ? copy.footerReportedTokens : copy.footerTokens).replace(
+                "{value}",
+                COMPACT.format(totalTokens),
+              )}
+            </FooterMetric>
+          )}
+          {showCache && (
+            <span className={showTokens ? "hidden shrink-0 @xs/dock-bar:inline-flex" : "shrink-0"}>
+              <FooterMetric separated={showTokens}>
+                {copy.footerCache.replace("{value}", percent(run.cacheHitRate))}
+              </FooterMetric>
+            </span>
+          )}
+          {showLatestResponse && (
+            <FooterMetric>
+              {copy.footerLatestResponse.replace("{value}", COMPACT.format(latestResponseTokens))}
+            </FooterMetric>
+          )}
+          {showUsageState && usageState && <span className="truncate">{usageState}</span>}
         </span>
-      </span>
-      <span className="hidden shrink-0 items-center gap-1.5 font-mono text-3xs whitespace-nowrap text-muted-foreground @lg/dock-bar:flex">
-        {metrics.includes("context") && ctxLabel && (
-          <MetricPill help={copy.context}>
-            {copy.contextShort} {ctxLabel}
-          </MetricPill>
-        )}
-        {metrics.includes("elapsed") && run && (
-          <MetricPill help={copy.wallTime}>
-            <ClockLabel elapsedMs={run.elapsedMs} startedAtMs={runStartedAtMs} />
-          </MetricPill>
-        )}
-        {metrics.includes("tokens") && run && (
-          <MetricPill help={copy.tokens}>
-            {run.status === "pending" ? copy.pending : number(run.tokenUsage?.outputTokens)}
-          </MetricPill>
-        )}
-        {metrics.includes("cache") && run && (
-          <MetricPill help={copy.cache}>{percent(run.cacheHitRate)}</MetricPill>
-        )}
-        {metrics.includes("output-rate") && run && (
-          <MetricPill help={`${copy.avgTps} · ${copy.wallTime}`}>
-            {run.turnAvgOutputTps === null ? DASH : `${number(run.turnAvgOutputTps)} TPS`}
-          </MetricPill>
-        )}
-      </span>
-      <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+      )}
     </>
   );
 }
 
-function MetricPill({ help, children }: { readonly help: string; readonly children: ReactNode }) {
+function FooterMetric({
+  separated,
+  children,
+}: {
+  readonly separated?: boolean;
+  readonly children: ReactNode;
+}) {
   return (
-    <span aria-label={help} className="rounded-md bg-muted px-1.5 py-0.5 whitespace-nowrap">
-      {children}
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      {separated && (
+        <span aria-hidden="true" className="opacity-55">
+          ·
+        </span>
+      )}
+      <span className="truncate">{children}</span>
     </span>
   );
 }
@@ -219,6 +300,77 @@ function TodoStep({
         )}
       </span>
     </li>
+  );
+}
+
+const STEP_ICON = {
+  Done: { Icon: Check, tone: "bg-foreground text-background" },
+  Now: { Icon: CircleDot, tone: "text-warning-foreground" },
+  Next: { Icon: Circle, tone: "text-muted-foreground" },
+};
+
+export function ComposerTaskPlan({ snapshot }: { readonly snapshot: DockSnapshot }) {
+  const copy = useDockCopy();
+  const { runStartedAtMs, claude } = useDockRuntime();
+  const { plans } = snapshot;
+  if (plans.todoStatus === "not_provided")
+    return (
+      <div className="space-y-2 px-4 py-3 text-sm text-muted-foreground">
+        <p>{copy.todoNotProvided}</p>
+        {claude && (
+          <p>
+            {copy.claudeTodoHelp}{" "}
+            <code className="wrap-anywhere">CLAUDE_CODE_ENABLE_TODO_TOOLS=1</code>
+          </p>
+        )}
+      </div>
+    );
+  const done = plans.steps.filter((step) => step.stage === "Done").length;
+  return (
+    <div className="px-4 py-3">
+      <div className="mb-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span className="font-mono tabular-nums">
+          {done}/{plans.steps.length}
+        </span>
+        {plans.referenceEtaMs !== null && (
+          <span>
+            {copy.eta}: <ClockLabel elapsedMs={plans.referenceEtaMs} startedAtMs={null} />
+          </span>
+        )}
+      </div>
+      <Progress done={done} total={plans.steps.length} />
+      <ol className="mt-2 space-y-0.5">
+        {plans.steps.map((step) => {
+          const { Icon, tone } = STEP_ICON[step.stage];
+          const anchor = step.durationAnchorAt === null ? null : Date.parse(step.durationAnchorAt);
+          const activeClock =
+            step.stage === "Now" &&
+            runStartedAtMs !== null &&
+            anchor !== null &&
+            Number.isFinite(anchor)
+              ? anchor
+              : null;
+          return (
+            <li key={step.id} className="flex min-h-10 items-center gap-2.5 py-1.5">
+              <span className={`grid size-5 shrink-0 place-items-center rounded-full ${tone}`}>
+                <Icon aria-hidden="true" className={step.stage === "Done" ? "size-3" : "size-5"} />
+              </span>
+              <span className="min-w-0 flex-1 wrap-break-word text-sm font-medium">
+                <span className="sr-only">{copy[step.stage]}: </span>
+                {step.label}
+              </span>
+              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                {step.durationMs !== null || activeClock !== null ? (
+                  <ClockLabel elapsedMs={step.durationMs ?? 0} startedAtMs={activeClock} />
+                ) : (
+                  copy[step.stage]
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
@@ -555,7 +707,15 @@ function TelemetryPanel({
       <Card title={copy.elapsed}>
         <p className="flex items-baseline justify-between gap-2">
           <span className="text-sm font-semibold">
-            {run ? <ClockLabel elapsedMs={run.elapsedMs} startedAtMs={runStartedAtMs} /> : DASH}
+            {run ? (
+              <ClockLabel
+                elapsedMs={run.elapsedMs}
+                startedAtMs={runStartedAtMs}
+                environmentId={snapshot.threadMeta.environmentId}
+              />
+            ) : (
+              DASH
+            )}
           </span>
           <span className="text-2xs text-muted-foreground">{copy.wallTime}</span>
         </p>

@@ -3,8 +3,8 @@ import { createStore } from "zustand/vanilla";
 import { parseExternalPanelUrl } from "./externalUrl";
 import type { ExternalWebPanelConfig } from "./types";
 
-const metricKeys = ["context", "elapsed", "tokens", "cache", "output-rate"] as const;
-type MetricKey = (typeof metricKeys)[number];
+export const composerMetricKeys = ["output-rate", "tokens", "cache"] as const;
+type MetricKey = (typeof composerMetricKeys)[number];
 
 const KEY = ["t3", "custom-dock", "v1"].join(".");
 const MIN_WIDTH = 280;
@@ -39,7 +39,7 @@ function panelConfig(value: unknown): ExternalWebPanelConfig | null {
 }
 
 function metrics(values: readonly unknown[]): MetricKey[] {
-  return metricKeys.filter((key) => values.includes(key));
+  return composerMetricKeys.filter((key) => values.includes(key));
 }
 
 function width(value: number): number {
@@ -69,7 +69,7 @@ function readPreferences(storage: Storage | null) {
     collapsedByThreadKey: collapsed as Record<string, boolean>,
     visibleMetrics: Array.isArray(state?.visibleMetrics)
       ? metrics(state.visibleMetrics)
-      : [...metricKeys],
+      : [...composerMetricKeys],
     externalPanels: [...new Map(panels.map((panel) => [panel.id, panel])).values()],
   };
 }

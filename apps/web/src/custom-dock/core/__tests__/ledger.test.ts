@@ -21,7 +21,7 @@ import { expect, it, vi } from "vite-plus/test";
 
 import { makeThreadProjectionFixture } from "../../../test-fixtures";
 import { derivePlanSnapshot } from "../plans";
-import { observeThread } from "../threadObserver";
+import { deriveDockSnapshot, rememberDockRuns } from "../threadObserver";
 import {
   deriveActivitySnapshot,
   deriveRecentRunsTelemetry,
@@ -268,9 +268,13 @@ it("coalesces completed ledger writes for a scoped thread even when its projecti
   const scope = { environmentId: EnvironmentId.make("local"), threadId: run.threadId };
   const put = vi.fn(() => Promise.resolve());
   const history = { list: () => Promise.resolve([]), put };
-  const measure = () => observeThread(() => source, history, scope, 12000);
-  expect(await measure()).toMatchObject({ threadMeta: scope, currentRun: { status: "complete" } });
-  await measure();
+  const measure = () => {
+    const snapshot = deriveDockSnapshot(source, scope, 12000, []);
+    rememberDockRuns(history, scope, source.runs, snapshot.recentRuns);
+    return snapshot;
+  };
+  expect(measure()).toMatchObject({ threadMeta: scope, currentRun: { status: "complete" } });
+  measure();
   expect(put).not.toHaveBeenCalled();
   await vi.runAllTimersAsync();
   expect(put).toHaveBeenCalledExactlyOnceWith(
@@ -281,7 +285,71 @@ it("coalesces completed ledger writes for a scoped thread even when its projecti
       completedAt: "1970-01-01T00:00:12.000Z",
     }),
   );
-  await measure();
+  measure();
   await vi.runAllTimersAsync();
   expect(put).toHaveBeenCalledTimes(1);
+});
+
+it("reports a live response separately from the run ledger and replaces it on each update", () => {
+  const { projection, run, turn } = fixture();
+  const active = { ...run, status: "running" as const, completedAt: null };
+  const scope = { environmentId: EnvironmentId.make("local"), threadId: run.threadId };
+  const report = (outputTokens: number) => ({
+    usedTokens: 10_000 + outputTokens,
+    inputTokens: 110,
+    outputTokens,
+    updatedAt: "1970-01-01T00:00:04.000Z",
+  });
+  const running = {
+    ...turn(1),
+    status: "running" as const,
+    completedAt: null,
+  };
+  const unrelated = {
+    ...running,
+    id: ProviderTurnId.make("other-turn"),
+    runAttemptId: RunAttemptId.make("old-attempt"),
+    tokenUsage: { ...report(940), updatedAt: "1970-01-01T00:00:05.000Z" },
+  };
+  const observe = (
+    providerTurns: readonly OrchestrationV2ProviderTurn[],
+    current: OrchestrationV2Run = active,
+  ) =>
+    deriveDockSnapshot(
+      {
+        ...projection,
+        attempts: projection.attempts.map((attempt) => ({ ...attempt, status: "running" })),
+        runs: [current],
+        providerTurns,
+      },
+      scope,
+      6000,
+      [],
+    );
+
+  expect(observe([{ ...running, tokenUsage: report(10) }, unrelated])).toMatchObject({
+    latestResponseTokens: 120,
+    currentRun: { status: "pending", tokenUsage: null, cacheHitRate: null, turnAvgOutputTps: null },
+  });
+  expect(observe([{ ...running, tokenUsage: report(35) }, unrelated])).toMatchObject({
+    latestResponseTokens: 145,
+    currentRun: { status: "pending", tokenUsage: null },
+  });
+  expect(observe([unrelated])).toMatchObject({ latestResponseTokens: null });
+  expect(
+    observe([{ ...running, tokenUsage: { usedTokens: 10_000, updatedAt: report(0).updatedAt } }]),
+  ).toMatchObject({ latestResponseTokens: null });
+  expect(
+    observe([{ ...running, tokenUsage: { ...report(10), updatedAt: "1970-01-01T00:00:01.000Z" } }]),
+  ).toMatchObject({ latestResponseTokens: null });
+  expect(
+    observe([{ ...turn(1, settled(220, 110, 60)), tokenUsage: report(35) }], run),
+  ).toMatchObject({
+    latestResponseTokens: null,
+    currentRun: {
+      status: "complete",
+      tokenUsage: { inputTokens: 220, outputTokens: 60 },
+      cacheHitRate: 0.5,
+    },
+  });
 });

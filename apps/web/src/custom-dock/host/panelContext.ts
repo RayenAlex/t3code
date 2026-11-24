@@ -3,15 +3,16 @@ import { createContext, use } from "react";
 
 import en from "../copy/en.json";
 import zh from "../copy/zh.json";
-import type { observeThread } from "../core/threadObserver";
+import type { deriveDockSnapshot } from "../core/threadObserver";
 import { createDockStore } from "./dockStore";
 
 export const dockPreferences = createDockStore();
 
-export type DockSnapshot = NonNullable<Awaited<ReturnType<typeof observeThread>>>;
+export type DockSnapshot = ReturnType<typeof deriveDockSnapshot>;
 
 type Runtime = {
   readonly snapshot: DockSnapshot | null;
+  readonly runOrdinal: number | null;
   readonly runStartedAtMs: number | null;
   readonly claude: boolean;
   readonly cwd: string | undefined;
@@ -19,6 +20,7 @@ type Runtime = {
 
 export const DockRuntime = createContext<Runtime>({
   snapshot: null,
+  runOrdinal: null,
   runStartedAtMs: null,
   claude: false,
   cwd: undefined,

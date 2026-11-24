@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { act, render } from "../../../test/render";
 import { ComposerAnchorPortal } from "./ComposerAnchorPortal";
@@ -51,4 +51,56 @@ it("keeps an accessible collapse action in a narrow composer", async () => {
   await expect.element(hide).toBeVisible();
   await userEvent.click(hide);
   expect(collapse).toHaveBeenCalledTimes(1);
+});
+
+it("puts the status footer inside the composer after its normal controls", async () => {
+  const stack = document.createElement("section");
+  stack.dataset.chatComposerStack = "true";
+  const composer = document.createElement("div");
+  composer.dataset.chatComposerMainSurface = "true";
+  const input = document.createElement("textarea");
+  const toolbar = document.createElement("div");
+  composer.append(input, toolbar);
+  stack.append(composer);
+  document.body.append(stack);
+  using _remove = { [Symbol.dispose]: () => stack.remove() };
+  input.focus();
+  await using screen = await render(
+    <ComposerAnchorPortal threadActive fallback={null}>
+      <span data-dock-test="footer" />
+    </ComposerAnchorPortal>,
+  );
+  const footer = stack.querySelector('[data-dock-test="footer"]');
+  expect(composer.lastElementChild?.contains(footer)).toBe(true);
+  expect(toolbar.nextElementSibling?.contains(footer)).toBe(true);
+  expect(document.activeElement).toBe(input);
+  await screen.unmount();
+  expect(composer.lastElementChild).toBe(toolbar);
+});
+
+it("opens task coordination from the footer without opening the side drawer and can reopen it", async () => {
+  const openDetails = vi.fn();
+  const container = document.createElement("div");
+  const anchor = document.createElement("section");
+  anchor.style.cssText = "position: fixed; bottom: 16px; left: 16px; width: 320px; height: 110px";
+  container.append(anchor);
+  document.body.append(container);
+  using _remove = { [Symbol.dispose]: () => container.remove() };
+  await using screen = await render(
+    <CompactBar anchor={anchor} open={openDetails} panel={<p>Verify composer geometry</p>}>
+      <span>Task progress</span>
+    </CompactBar>,
+    { container: anchor },
+  );
+  const trigger = screen.getByText("Task progress");
+  await trigger.click();
+  expect(openDetails).not.toHaveBeenCalled();
+  const popup = page.getByRole("dialog", { name: "Task coordination" });
+  await expect.element(popup.getByText("Verify composer geometry")).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(popup).not.toBeInTheDocument();
+  await trigger.click();
+  await expect.element(popup).toBeVisible();
+  await popup.getByRole("button", { name: "Collapse task coordination" }).click();
+  await expect.element(popup).not.toBeInTheDocument();
 });

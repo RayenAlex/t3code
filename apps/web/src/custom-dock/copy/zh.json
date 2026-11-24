@@ -42,7 +42,6 @@
   "unchecked": "未检查",
   "unknown": "未知",
   "context": "上下文窗口",
-  "contextShort": "上下文",
   "compactThreshold": "自动压缩阈值",
   "elapsed": "本轮运行时长",
   "wallTime": "含工具与等待",
@@ -83,5 +82,16 @@
   "invalidUrl": "请使用 HTTPS 或 localhost/127.0.0.1 的 HTTP 网址，且不得含凭据或与宿主同源。",
   "save": "保存",
   "cancel": "取消",
-  "openOutside": "在浏览器中打开"
+  "openOutside": "在浏览器中打开",
+  "tasks": "任务统筹",
+  "openTasks": "展开任务统筹",
+  "closeTasks": "收起任务统筹",
+  "collapseTasks": "收起",
+  "footerRun": "第 {count} 轮",
+  "footerSteps": "{done}/{total} 步",
+  "footerRate": "{value} 令牌/秒",
+  "footerTokens": "本轮 {value} 令牌",
+  "footerReportedTokens": "已报告 {value} 令牌",
+  "footerCache": "缓存命中 {value}",
+  "footerLatestResponse": "最近一次响应 {value} 令牌"
 }

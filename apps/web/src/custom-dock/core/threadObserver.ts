@@ -1,12 +1,8 @@
+import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
+import type { OrchestrationV2Run } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-import type {
-  CustomDockThreadSnapshot,
-  ReadThreadStructure,
-  RunHistory,
-  RunSummary,
-  ThreadMeta,
-} from "../host/types";
+import type { CustomDockThreadSnapshot, RunHistory, RunSummary, ThreadMeta } from "../host/types";
 import { derivePlanSnapshot } from "./plans";
 import {
   deriveActivitySnapshot,
@@ -14,7 +10,7 @@ import {
   deriveRunTelemetry,
   deriveRecentRunsTelemetry,
 } from "./telemetry";
-import { isTerminalRun, latestDockRun } from "./runStructure";
+import { isTerminalRun, latestDockRun, timestampMs } from "./runStructure";
 
 type PendingWrites = {
   queued: Map<string, RunSummary>;
@@ -49,18 +45,63 @@ function queueSummaries(history: RunHistory, scope: ThreadMeta, summaries: reado
   }, 250);
 }
 
-export async function observeThread(
-  readThreadStructure: ReadThreadStructure,
-  history: RunHistory,
+function latestResponseTokens(projection: ThreadStructure, run: OrchestrationV2Run | null) {
+  if (run === null || isTerminalRun(run) || run.activeAttemptId === null) return null;
+  const attempt = projection.attempts.find(
+    ({ id, runId }) => id === run.activeAttemptId && runId === run.id,
+  );
+  if (!attempt || attempt.status !== "running") return null;
+
+  let latest = null;
+  for (const turn of projection.providerTurns) {
+    if (
+      turn.runAttemptId !== attempt.id ||
+      turn.providerThreadId !== attempt.providerThreadId ||
+      turn.promptDropped ||
+      turn.turnTokenUsage?.localCommand === true
+    )
+      continue;
+    if (latest === null || turn.ordinal >= latest.ordinal) latest = turn;
+  }
+  if (latest === null || latest.status !== "running") return null;
+  const report = latest.tokenUsage;
+  if (report?.inputTokens === undefined || report.outputTokens === undefined) return null;
+  const startedAt = timestampMs(latest.startedAt ?? run.workStartedAt ?? run.startedAt);
+  const reportedAt = Date.parse(report.updatedAt);
+  if (startedAt === null || !Number.isFinite(reportedAt) || reportedAt < startedAt) return null;
+  return report.inputTokens + report.outputTokens;
+}
+
+export function deriveDockSnapshot(
+  projection: ThreadStructure,
   scope: ThreadMeta,
   nowMs: number,
+  cached: readonly RunSummary[],
 ) {
-  const projection = readThreadStructure(scope);
-  if (projection === null) return null;
-  const cached = await history.list(scope).catch(() => []);
   const recentRuns = deriveRecentRunsTelemetry(projection, cached, nowMs);
+  const run = latestDockRun(projection);
+  return {
+    threadMeta: scope,
+    contextWindow: deriveContextWindowMetrics(projection),
+    currentRun: run
+      ? (recentRuns.find(({ runId }) => runId === run.id) ??
+        deriveRunTelemetry(projection, run, nowMs))
+      : null,
+    latestResponseTokens: latestResponseTokens(projection, run),
+    recentRuns,
+    plans: derivePlanSnapshot(projection),
+    activity: deriveActivitySnapshot(projection, nowMs),
+  } satisfies CustomDockThreadSnapshot & { latestResponseTokens: number | null };
+}
+
+export function rememberDockRuns(
+  history: RunHistory,
+  scope: ThreadMeta,
+  runs: ThreadStructure["runs"],
+  recentRuns: CustomDockThreadSnapshot["recentRuns"],
+) {
   const finished = new Map(
-    projection.runs
+    runs
       .filter(
         (run) => isTerminalRun(run) && run.status !== "rolled_back" && run.completedAt !== null,
       )
@@ -82,16 +123,4 @@ export async function observeThread(
         : [];
     }),
   );
-  const run = latestDockRun(projection);
-  return {
-    threadMeta: scope,
-    contextWindow: deriveContextWindowMetrics(projection),
-    currentRun: run
-      ? (recentRuns.find(({ runId }) => runId === run.id) ??
-        deriveRunTelemetry(projection, run, nowMs))
-      : null,
-    recentRuns,
-    plans: derivePlanSnapshot(projection),
-    activity: deriveActivitySnapshot(projection, nowMs),
-  } satisfies CustomDockThreadSnapshot;
 }
