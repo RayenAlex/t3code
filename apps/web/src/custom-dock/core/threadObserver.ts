@@ -54,7 +54,7 @@ export async function observeThread(
   history: RunHistory,
   scope: ThreadMeta,
   nowMs: number,
-): Promise<CustomDockThreadSnapshot | null> {
+) {
   const projection = readThreadStructure(scope);
   if (projection === null) return null;
   const cached = await history.list(scope).catch(() => []);
@@ -93,5 +93,5 @@ export async function observeThread(
     recentRuns,
     plans: derivePlanSnapshot(projection),
     activity: deriveActivitySnapshot(projection, nowMs),
-  };
+  } satisfies CustomDockThreadSnapshot;
 }

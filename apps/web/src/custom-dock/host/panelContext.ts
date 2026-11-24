@@ -1,0 +1,34 @@
+import { useLocale } from "gt-react";
+import { createContext, use } from "react";
+
+import en from "../copy/en.json";
+import zh from "../copy/zh.json";
+import type { observeThread } from "../core/threadObserver";
+import { createDockStore } from "./dockStore";
+
+export const dockPreferences = createDockStore();
+
+export type DockSnapshot = NonNullable<Awaited<ReturnType<typeof observeThread>>>;
+
+type Runtime = {
+  readonly snapshot: DockSnapshot | null;
+  readonly runStartedAtMs: number | null;
+  readonly claude: boolean;
+  readonly cwd: string | undefined;
+};
+
+export const DockRuntime = createContext<Runtime>({
+  snapshot: null,
+  runStartedAtMs: null,
+  claude: false,
+  cwd: undefined,
+});
+
+export function useDockRuntime(): Runtime {
+  return use(DockRuntime);
+}
+
+export function useDockCopy(): typeof en {
+  const locale = useLocale();
+  return locale.split("-")[0] === "zh" ? zh : en;
+}

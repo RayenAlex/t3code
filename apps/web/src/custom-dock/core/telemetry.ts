@@ -97,7 +97,7 @@ export function deriveRunTelemetry(
   projection: ThreadStructure,
   run: OrchestrationV2Run,
   nowMs: number,
-): RunTelemetry {
+) {
   const terminal = isTerminalRun(run);
   const started = timestampMs(run.startedAt);
   const requested = timestampMs(run.requestedAt);

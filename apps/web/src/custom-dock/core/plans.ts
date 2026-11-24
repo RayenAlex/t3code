@@ -1,5 +1,9 @@
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
-import type { OrchestrationV2PlanArtifact, ScopedThreadRef } from "@t3tools/contracts";
+import type {
+  OrchestrationV2PlanArtifact,
+  OrchestrationV2RemoteTaskChild,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
 
 import type { ActivitySnapshot, PlanSnapshot } from "../host/types";
 import {
@@ -10,7 +14,7 @@ import {
   timestampMs,
 } from "./runStructure";
 
-export function derivePlanSnapshot(projection: ThreadStructure): PlanSnapshot {
+export function derivePlanSnapshot(projection: ThreadStructure) {
   const runs = new Map((projection.runs ?? []).map((run) => [run.id, run]));
   let todo: Extract<OrchestrationV2PlanArtifact, { kind: "todo_list" }> | undefined;
   let proposed: Extract<OrchestrationV2PlanArtifact, { kind: "proposed_plan" }> | undefined;
@@ -26,6 +30,7 @@ export function derivePlanSnapshot(projection: ThreadStructure): PlanSnapshot {
     if (plan.kind === "proposed_plan" && rank(plan) >= rank(proposed)) proposed = plan;
   }
   const steps = (todo?.steps ?? []).map((step) => ({
+    id: step.id,
     label: step.text,
     stage:
       step.status === "completed"
@@ -49,7 +54,7 @@ export function derivePlanSnapshot(projection: ThreadStructure): PlanSnapshot {
     proposedPlan: proposed
       ? { id: proposed.id, status: proposed.status, markdown: proposed.markdown }
       : null,
-  };
+  } satisfies PlanSnapshot;
 }
 
 type DockFile = { path: string; additions?: number; deletions?: number };
@@ -58,20 +63,13 @@ type DockSubagent = {
   id: string;
   name: string | null;
   childThreadId: ScopedThreadRef["threadId"] | null;
-  remoteChild?: ScopedThreadRef;
+  remoteChild?: OrchestrationV2RemoteTaskChild;
 };
 
 const VERIFY_COMMAND =
   /^(?:(?:(?:npm|pnpm|bun|yarn|vp|npx)\s+(?:run\s+)?)?(?:test(?:\s|:|$)|typecheck(?:\s|:|$)|build(?:\s|:|$)|vitest\b|jest\b|tsc\b|pytest\b)|(?:go|cargo)\s+test\b)/;
 
-export function deriveActivitySnapshot(
-  projection: ThreadStructure,
-  nowMs: number,
-): ActivitySnapshot & {
-  files: readonly DockFile[];
-  subagents: readonly DockSubagent[];
-  activeTool: string | null;
-} {
+export function deriveActivitySnapshot(projection: ThreadStructure, nowMs: number) {
   const run = latestDockRun(projection);
   const active =
     run !== null && !isTerminalRun(run) && (run.status !== "queued" || run.startedAt != null);
@@ -175,7 +173,7 @@ export function deriveActivitySnapshot(
         ...(worker.remoteChild ? { remoteChild: worker.remoteChild } : {}),
       });
     }
-  return {
+  const snapshot = {
     phase,
     changedPaths: [...files.keys()],
     files: [...files.values()],
@@ -185,5 +183,6 @@ export function deriveActivitySnapshot(
     ),
     verification,
     activeTool: activeTool?.title ?? null,
-  };
+  } satisfies ActivitySnapshot & { files: readonly DockFile[]; activeTool: string | null };
+  return snapshot;
 }
