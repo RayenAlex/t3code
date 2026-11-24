@@ -72,6 +72,57 @@ function latestResponseTokens(projection: ThreadStructure, run: OrchestrationV2R
   return report.inputTokens + report.outputTokens;
 }
 
+export type LiveOutputProgress = {
+  readonly outputTokens: number;
+  readonly startedAtMs: number;
+  readonly reportedAtMs: number;
+};
+
+function liveOutputProgress(
+  projection: ThreadStructure,
+  run: OrchestrationV2Run | null,
+): LiveOutputProgress | null {
+  if (run === null || isTerminalRun(run)) return null;
+  const startedAtMs = timestampMs(run.workStartedAt ?? run.startedAt);
+  if (startedAtMs === null) return null;
+  const attemptIds = new Set(
+    (projection.attempts ?? [])
+      .filter((attempt) => attempt.runId === run.id)
+      .map((attempt) => attempt.id),
+  );
+  let outputTokens = 0;
+  let reportedAtMs = startedAtMs;
+  for (const turn of projection.providerTurns ?? []) {
+    if (
+      turn.runAttemptId === null ||
+      !attemptIds.has(turn.runAttemptId) ||
+      turn.promptDropped === true ||
+      turn.turnTokenUsage?.localCommand === true ||
+      (turn.turnTokenUsage !== undefined && turn.turnTokenUsage.usageScope !== "main_agent")
+    )
+      continue;
+    const settledOutput =
+      turn.turnTokenUsage?.usageStatus !== "unavailable"
+        ? turn.turnTokenUsage?.outputTokens
+        : undefined;
+    if (settledOutput !== undefined && settledOutput > 0) {
+      outputTokens += settledOutput;
+      const completedAt = timestampMs(turn.completedAt ?? turn.startedAt);
+      if (completedAt !== null) reportedAtMs = Math.max(reportedAtMs, completedAt);
+      continue;
+    }
+    const report = turn.tokenUsage;
+    if (turn.status !== "running" || report?.outputTokens === undefined || report.outputTokens <= 0)
+      continue;
+    const turnStartedAt = timestampMs(turn.startedAt) ?? startedAtMs;
+    const reportTime = Date.parse(report.updatedAt);
+    if (!Number.isFinite(reportTime) || reportTime < turnStartedAt) continue;
+    outputTokens += report.outputTokens;
+    reportedAtMs = Math.max(reportedAtMs, reportTime);
+  }
+  return outputTokens > 0 ? { outputTokens, startedAtMs, reportedAtMs } : null;
+}
+
 export function deriveDockSnapshot(
   projection: ThreadStructure,
   scope: ThreadMeta,
@@ -88,10 +139,14 @@ export function deriveDockSnapshot(
         deriveRunTelemetry(projection, run, nowMs))
       : null,
     latestResponseTokens: latestResponseTokens(projection, run),
+    liveOutputProgress: liveOutputProgress(projection, run),
     recentRuns,
     plans: derivePlanSnapshot(projection),
     activity: deriveActivitySnapshot(projection, nowMs),
-  } satisfies CustomDockThreadSnapshot & { latestResponseTokens: number | null };
+  } satisfies CustomDockThreadSnapshot & {
+    latestResponseTokens: number | null;
+    liveOutputProgress: LiveOutputProgress | null;
+  };
 }
 
 export function rememberDockRuns(

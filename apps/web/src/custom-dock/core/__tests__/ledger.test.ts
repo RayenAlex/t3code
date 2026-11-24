@@ -21,6 +21,7 @@ import { expect, it, vi } from "vite-plus/test";
 
 import { makeThreadProjectionFixture } from "../../../test-fixtures";
 import { derivePlanSnapshot } from "../plans";
+import { deriveLiveStreamTps, estimateTextTokens } from "../streamRate";
 import { deriveDockSnapshot, rememberDockRuns } from "../threadObserver";
 import {
   deriveActivitySnapshot,
@@ -225,6 +226,8 @@ it("keeps only structured Todo steps with measured reference time", () => {
     }),
   ).toMatchObject({
     todoStatus: "provided",
+    todoScope: "current",
+    todoRunOrdinal: 1,
     steps: [
       { stage: "Done", durationMs: 4000 },
       { stage: "Now", durationAnchorAt: anchor },
@@ -232,6 +235,310 @@ it("keeps only structured Todo steps with measured reference time", () => {
     ],
     referenceEtaMs: 8000,
   });
+});
+
+it("retires a finished previous plan on a new run while carrying unfinished multi-turn plans", () => {
+  const { projection, run } = fixture();
+  const nextRun: OrchestrationV2Run = {
+    ...run,
+    id: RunId.make("run-2"),
+    ordinal: 2,
+    status: "running",
+    completedAt: null,
+  };
+  const finishedPlan = {
+    id: PlanId.make("todo-1"),
+    threadId: run.threadId,
+    runId: run.id,
+    nodeId: run.rootNodeId!,
+    kind: "todo_list" as const,
+    status: "completed" as const,
+    steps: [
+      { id: "one", text: "One", status: "completed" as const, durationMs: 1000 },
+      { id: "two", text: "Two", status: "completed" as const, durationMs: 1500 },
+    ],
+  };
+  expect(
+    derivePlanSnapshot({
+      ...projection,
+      runs: [run, nextRun],
+      plans: [finishedPlan],
+    }),
+  ).toMatchObject({
+    todoStatus: "not_provided",
+    todoScope: "none",
+    todoRunOrdinal: null,
+    steps: [],
+    referenceEtaMs: null,
+  });
+
+  const unfinishedPlan = {
+    ...finishedPlan,
+    status: "active" as const,
+    steps: [
+      { id: "one", text: "One", status: "completed" as const, durationMs: 1000 },
+      { id: "two", text: "Two", status: "pending" as const },
+    ],
+  };
+  expect(
+    derivePlanSnapshot({
+      ...projection,
+      runs: [run, nextRun],
+      plans: [unfinishedPlan],
+    }),
+  ).toMatchObject({
+    todoStatus: "provided",
+    todoScope: "carried",
+    todoRunOrdinal: 1,
+    steps: [{ stage: "Done" }, { stage: "Next" }],
+  });
+
+  const nextRunPlan = {
+    id: PlanId.make("todo-2"),
+    threadId: run.threadId,
+    runId: nextRun.id,
+    nodeId: nextRun.rootNodeId!,
+    kind: "todo_list" as const,
+    status: "active" as const,
+    steps: [{ id: "a", text: "Fresh step", status: "running" as const }],
+  };
+  expect(
+    derivePlanSnapshot({
+      ...projection,
+      runs: [run, nextRun],
+      plans: [unfinishedPlan, nextRunPlan],
+    }),
+  ).toMatchObject({
+    todoStatus: "provided",
+    todoScope: "current",
+    todoRunOrdinal: 2,
+    steps: [{ label: "Fresh step", stage: "Now" }],
+  });
+});
+
+it("derives objective live activity without reading streamed reasoning text", () => {
+  const { projection, run, turn, command } = fixture();
+  const { workStartedAt: _workStartedAt, ...runWithoutWorkStart } = run;
+  const queuedRun: OrchestrationV2Run = {
+    ...runWithoutWorkStart,
+    id: RunId.make("run-queued"),
+    ordinal: 2,
+    status: "queued",
+    startedAt: null,
+    completedAt: null,
+  };
+  expect(
+    deriveActivitySnapshot({ ...projection, runs: [run, queuedRun] }, 20_000).liveAction,
+  ).toEqual({ kind: "queued", detail: null });
+
+  const activeRun: OrchestrationV2Run = {
+    ...run,
+    status: "running",
+    completedAt: null,
+  };
+  const runningCommand = {
+    ...command(2100, 2200),
+    status: "running" as const,
+    completedAt: null,
+  };
+  expect(
+    deriveActivitySnapshot({ ...projection, runs: [activeRun], turnItems: [runningCommand] }, 3000),
+  ).toMatchObject({
+    liveAction: { kind: "command", detail: "vp test run" },
+    toolCount: 1,
+  });
+
+  const fileEdit: Extract<OrchestrationV2TurnItem, { type: "file_change" }> = {
+    id: TurnItemId.make("edit-1"),
+    threadId: run.threadId,
+    runId: activeRun.id,
+    nodeId: run.rootNodeId!,
+    providerThreadId: run.providerThreadId!,
+    providerTurnId: turn(1).id,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 3000,
+    status: "running",
+    title: null,
+    startedAt: at(2500),
+    completedAt: null,
+    updatedAt: at(2500),
+    type: "file_change",
+    fileName: "apps/web/src/custom-dock/core/plans.ts",
+  };
+  expect(
+    deriveActivitySnapshot(
+      { ...projection, runs: [activeRun], turnItems: [command(2100, 2400), fileEdit] },
+      3000,
+    ),
+  ).toMatchObject({
+    liveAction: { kind: "file_change", detail: "plans.ts" },
+    toolCount: 2,
+  });
+
+  expect(deriveActivitySnapshot(projection, 20_000).liveAction).toBeNull();
+});
+
+it("parses structured Run update_steps dynamic_tool calls when no native todo_list exists", () => {
+  const { projection, run, turn } = fixture();
+  const updateSteps = (
+    ordinal: number,
+    steps: ReadonlyArray<{ readonly title: string; readonly status: string }>,
+    targetRun: OrchestrationV2Run = run,
+  ): Extract<OrchestrationV2TurnItem, { type: "dynamic_tool" }> => ({
+    id: TurnItemId.make(`steps-${ordinal}`),
+    threadId: run.threadId,
+    runId: targetRun.id,
+    nodeId: run.rootNodeId!,
+    providerThreadId: run.providerThreadId!,
+    providerTurnId: turn(1).id,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal,
+    status: "completed",
+    title: "Run update_steps",
+    startedAt: at(2500),
+    completedAt: at(2600),
+    updatedAt: at(2600),
+    type: "dynamic_tool",
+    toolName: "Run update_steps",
+    input: { steps },
+  });
+
+  expect(
+    derivePlanSnapshot({
+      ...projection,
+      turnItems: [
+        updateSteps(10, [
+          { title: "Inspect source", status: "in_progress" },
+          { title: "Run tests", status: "pending" },
+        ]),
+        updateSteps(20, [
+          { title: "Inspect source", status: "done" },
+          { title: "Run tests", status: "in_progress" },
+        ]),
+      ],
+    }),
+  ).toMatchObject({
+    todoStatus: "provided",
+    todoScope: "current",
+    todoRunOrdinal: 1,
+    steps: [
+      { label: "Inspect source", stage: "Done", durationMs: null },
+      { label: "Run tests", stage: "Now", durationMs: null },
+    ],
+  });
+
+  const nextRun: OrchestrationV2Run = {
+    ...run,
+    id: RunId.make("run-2"),
+    ordinal: 2,
+    status: "running",
+    completedAt: null,
+  };
+  expect(
+    derivePlanSnapshot({
+      ...projection,
+      runs: [run, nextRun],
+      turnItems: [
+        updateSteps(20, [
+          { title: "Inspect source", status: "done" },
+          { title: "Run tests", status: "done" },
+        ]),
+      ],
+    }),
+  ).toMatchObject({
+    todoStatus: "not_provided",
+    todoScope: "none",
+    steps: [],
+  });
+});
+
+it("tracks live output progress across settled and running turns for active runs", () => {
+  const { projection, run, turn } = fixture();
+  const active = { ...run, status: "running" as const, completedAt: null };
+  const scope = { environmentId: EnvironmentId.make("local"), threadId: run.threadId };
+  const runningTurn: OrchestrationV2ProviderTurn = {
+    ...turn(2),
+    status: "running",
+    completedAt: null,
+    tokenUsage: {
+      usedTokens: 5000,
+      inputTokens: 4800,
+      outputTokens: 80,
+      updatedAt: "1970-01-01T00:00:05.000Z",
+    },
+  };
+  const liveSnapshot = deriveDockSnapshot(
+    {
+      ...projection,
+      runs: [active],
+      attempts: projection.attempts.map((attempt) => ({ ...attempt, status: "running" })),
+      providerTurns: [turn(1, settled(200, 100, 40)), runningTurn],
+    },
+    scope,
+    6000,
+    [],
+  );
+  expect(liveSnapshot.liveOutputProgress).toEqual({
+    outputTokens: 120,
+    startedAtMs: 2000,
+    reportedAtMs: 12000,
+  });
+
+  const completedSnapshot = deriveDockSnapshot(
+    { ...projection, runs: [run], providerTurns: [turn(1, settled(200, 100, 40))] },
+    scope,
+    12000,
+    [],
+  );
+  expect(completedSnapshot.liveOutputProgress).toBeNull();
+});
+
+it("estimates live streaming TPS from active reasoning and assistant text without provider usage", () => {
+  const { projection, run, turn } = fixture();
+  expect(estimateTextTokens("abcd".repeat(10))).toBe(10);
+  expect(estimateTextTokens("中文测试九个字吧哈")).toBe(6);
+
+  const streamingReasoning: Extract<OrchestrationV2TurnItem, { type: "reasoning" }> = {
+    id: TurnItemId.make("reason-1"),
+    threadId: run.threadId,
+    runId: run.id,
+    nodeId: run.rootNodeId!,
+    providerThreadId: run.providerThreadId!,
+    providerTurnId: turn(1).id,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 1,
+    status: "running",
+    title: null,
+    startedAt: at(4000),
+    completedAt: null,
+    updatedAt: at(6000),
+    type: "reasoning",
+    text: "abcd".repeat(120),
+    streaming: true,
+  };
+  expect(
+    deriveLiveStreamTps({
+      projection: { ...projection, turnItems: [streamingReasoning] },
+      runId: run.id,
+      runStartedAtMs: 2000,
+      providerProgress: null,
+      serverNowMs: 6000,
+    }),
+  ).toBe(60);
+
+  // Silent thinking with empty text stays null rather than fabricating zero or noise.
+  expect(
+    deriveLiveStreamTps({
+      projection: { ...projection, turnItems: [{ ...streamingReasoning, text: "" }] },
+      runId: run.id,
+      runStartedAtMs: 2000,
+      providerProgress: null,
+      serverNowMs: 6000,
+    }),
+  ).toBeNull();
 });
 
 it("does not resurrect a cached rolled-back run or mistake waiting for working", () => {

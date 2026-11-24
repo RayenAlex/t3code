@@ -1,5 +1,5 @@
 import { Tabs } from "@base-ui/react/tabs";
-import { toServerClock } from "@t3tools/client-runtime/clock";
+import { secondTick, toServerClock } from "@t3tools/client-runtime/clock";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { formatWorkingDurationLabel } from "@t3tools/client-runtime/state/shell";
 import { isAbsolutePath, workspaceRelativeFilePath } from "@t3tools/shared/path";
@@ -23,6 +23,8 @@ import { useStore } from "zustand";
 import { Button } from "../../components/ui/button";
 import { tickTextContent } from "../../lib/tickTextContent";
 import { useRightPanelStore } from "../../rightPanelStore";
+import type { LiveActivityAction } from "../core/plans";
+import type { LiveOutputProgress } from "../core/threadObserver";
 import { DockTab, DockTabList } from "../host/DockTabs";
 import {
   dockPreferences,
@@ -103,6 +105,104 @@ function ClockLabel({
   );
 }
 
+function providerRateAt(
+  progress: LiveOutputProgress | null,
+  environmentId: EnvironmentId | undefined,
+  nowMs: number,
+): number | null {
+  if (progress === null || progress.outputTokens <= 0) return null;
+  const serverNow = environmentId === undefined ? nowMs : toServerClock(environmentId, nowMs);
+  const elapsedMs = Math.max(
+    progress.reportedAtMs - progress.startedAtMs,
+    serverNow - progress.startedAtMs,
+  );
+  return elapsedMs >= 200 ? (progress.outputTokens * 1000) / elapsedMs : null;
+}
+
+function initialProviderRate(progress: LiveOutputProgress | null): number | null {
+  if (progress === null || progress.outputTokens <= 0) return null;
+  const elapsedMs = Math.max(0, progress.reportedAtMs - progress.startedAtMs);
+  return elapsedMs >= 200 ? (progress.outputTokens * 1000) / elapsedMs : null;
+}
+
+function LiveRateLabel({
+  progress,
+  readLiveTps,
+  environmentId,
+  template,
+  fallback,
+}: {
+  readonly progress: LiveOutputProgress | null;
+  readonly readLiveTps?: ((nowMs: number) => number | null) | undefined;
+  readonly environmentId?: EnvironmentId;
+  readonly template: string;
+  readonly fallback: string;
+}) {
+  const formatRate = (rate: number | null) =>
+    rate === null ? fallback : template.replace("{value}", number(rate));
+  const initial = initialProviderRate(progress);
+  return (
+    <span
+      className="tabular-nums"
+      ref={tickTextContent((nowMs) => {
+        const rate = readLiveTps
+          ? readLiveTps(nowMs)
+          : providerRateAt(progress, environmentId, nowMs);
+        return formatRate(rate);
+      }, true)}
+    >
+      {formatRate(initial)}
+    </span>
+  );
+}
+
+function LiveFooterRate({
+  separated,
+  progress,
+  readLiveTps,
+  environmentId,
+  template,
+  ariaLabel,
+}: {
+  readonly separated: boolean;
+  readonly progress: LiveOutputProgress | null;
+  readonly readLiveTps?: ((nowMs: number) => number | null) | undefined;
+  readonly environmentId?: EnvironmentId;
+  readonly template: string;
+  readonly ariaLabel: string;
+}) {
+  const initial = initialProviderRate(progress);
+  const initialText = initial === null ? "" : template.replace("{value}", number(initial));
+  return (
+    <span
+      className="hidden shrink-0 @xs/dock-bar:inline-flex"
+      aria-label={ariaLabel}
+      style={initialText === "" ? { display: "none" } : undefined}
+      ref={(node) => {
+        if (!node) return;
+        const valueNode = node.querySelector("[data-live-rate-value]");
+        const write = () => {
+          const nowMs = Date.now();
+          const rate = readLiveTps
+            ? readLiveTps(nowMs)
+            : providerRateAt(progress, environmentId, nowMs);
+          const next = rate === null ? "" : template.replace("{value}", number(rate));
+          node.style.display = next === "" ? "none" : "";
+          if (valueNode && valueNode.textContent !== next) valueNode.textContent = next;
+        };
+        write();
+        return secondTick.subscribe(write);
+      }}
+    >
+      <FooterMetric separated={separated}>
+        <span data-live-rate-value className="tabular-nums">
+          {initialText}
+        </span>
+      </FooterMetric>
+    </span>
+  );
+}
+
 function Phase({ phase }: { readonly phase: DockSnapshot["activity"]["phase"] }) {
   const copy = useDockCopy();
   return (
@@ -124,12 +224,62 @@ function Progress({ done, total }: { readonly done: number; readonly total: numb
   );
 }
 
+function formatLiveAction(
+  action: LiveActivityAction | null,
+  copy: ReturnType<typeof useDockCopy>,
+): string | null {
+  if (action === null) return null;
+  switch (action.kind) {
+    case "needs_you":
+      return copy.needs_you;
+    case "queued":
+      return copy.actionQueued;
+    case "starting":
+      return copy.actionStarting;
+    case "thinking":
+      return copy.actionThinking;
+    case "replying":
+      return copy.actionReplying;
+    case "command":
+      return action.detail
+        ? copy.actionCommand.replace("{detail}", action.detail)
+        : copy.actionCommandBare;
+    case "file_change":
+      return action.detail
+        ? copy.actionFileChange.replace("{detail}", action.detail)
+        : copy.actionFileChangeBare;
+    case "search":
+      return action.detail
+        ? copy.actionSearch.replace("{detail}", action.detail)
+        : copy.actionSearchBare;
+    case "tool":
+      return action.detail
+        ? copy.actionTool.replace("{detail}", action.detail)
+        : copy.actionToolBare;
+    case "subagent":
+      return action.detail
+        ? copy.actionSubagent.replace("{detail}", action.detail)
+        : copy.actionSubagentBare;
+  }
+}
+
+function carriedPlanLabel(
+  plans: DockSnapshot["plans"],
+  copy: ReturnType<typeof useDockCopy>,
+): string | null {
+  if (plans.todoScope !== "carried") return null;
+  return plans.todoRunOrdinal !== null
+    ? copy.todoCarried.replace("{count}", number(plans.todoRunOrdinal))
+    : copy.todoCarriedGeneric;
+}
+
 function SessionGlanceBar() {
   const copy = useDockCopy();
-  const { snapshot, runOrdinal, runStartedAtMs } = useDockRuntime();
+  const { snapshot, runOrdinal, runStartedAtMs, readLiveTps } = useDockRuntime();
   const metrics = useStore(dockPreferences, (state) => state.visibleMetrics);
   if (!snapshot) return null;
-  const { phase } = snapshot.activity;
+  const { phase, liveAction } = snapshot.activity;
+  const liveLabel = formatLiveAction(liveAction, copy);
   const Status =
     phase === "done"
       ? CircleCheck
@@ -154,7 +304,13 @@ function SessionGlanceBar() {
     counters?.inputTokens != null && counters.outputTokens != null
       ? counters.inputTokens + counters.outputTokens
       : null;
-  const showRate = metrics.includes("output-rate") && run?.turnAvgOutputTps != null;
+  const liveOutput = runStartedAtMs !== null ? snapshot.liveOutputProgress : null;
+  const showLiveRate =
+    metrics.includes("output-rate") &&
+    runStartedAtMs !== null &&
+    (liveOutput !== null || readLiveTps !== undefined);
+  const showSettledRate =
+    metrics.includes("output-rate") && !showLiveRate && run?.turnAvgOutputTps != null;
   const showTokens = metrics.includes("tokens") && totalTokens !== null;
   const showCache = metrics.includes("cache") && run?.cacheHitRate != null;
   const usageState =
@@ -174,7 +330,9 @@ function SessionGlanceBar() {
     !showCache &&
     !showLatestResponse;
   const showClock = runStartedAtMs !== null;
-  const hasProgress = runOrdinal !== null || steps.length > 0;
+  const showPrimaryLiveAction = steps.length === 0 && liveLabel !== null;
+  const showSecondaryLiveAction = steps.length > 0 && liveLabel !== null;
+  const hasProgress = runOrdinal !== null || steps.length > 0 || liveLabel !== null;
   return (
     <>
       <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
@@ -190,6 +348,9 @@ function SessionGlanceBar() {
               .replace("{total}", number(steps.length))}
           </FooterMetric>
         )}
+        {showPrimaryLiveAction && (
+          <FooterMetric separated={runOrdinal !== null}>{liveLabel}</FooterMetric>
+        )}
         {showClock && (
           <FooterMetric separated={hasProgress}>
             <ClockLabel
@@ -199,7 +360,22 @@ function SessionGlanceBar() {
             />
           </FooterMetric>
         )}
-        {showRate && (
+        {showSecondaryLiveAction && (
+          <span className="hidden min-w-0 @sm/dock-bar:inline-flex">
+            <FooterMetric separated={hasProgress || showClock}>{liveLabel}</FooterMetric>
+          </span>
+        )}
+        {showLiveRate && (
+          <LiveFooterRate
+            separated={hasProgress || showClock}
+            progress={liveOutput}
+            readLiveTps={readLiveTps}
+            environmentId={snapshot.threadMeta.environmentId}
+            template={copy.footerLiveRate}
+            ariaLabel={`${copy.avgTps} · ${copy.liveRateHelp}`}
+          />
+        )}
+        {showSettledRate && (
           <span
             className="hidden shrink-0 @xs/dock-bar:inline-flex"
             aria-label={`${copy.avgTps} · ${copy.wallTime}`}
@@ -309,14 +485,44 @@ const STEP_ICON = {
   Next: { Icon: Circle, tone: "text-muted-foreground" },
 };
 
-export function ComposerTaskPlan({ snapshot }: { readonly snapshot: DockSnapshot }) {
+export function ComposerTaskPlan({
+  snapshot,
+  compact = false,
+}: {
+  readonly snapshot: DockSnapshot;
+  readonly compact?: boolean;
+}) {
   const copy = useDockCopy();
   const { runStartedAtMs, claude } = useDockRuntime();
-  const { plans } = snapshot;
+  const { plans, activity } = snapshot;
+  const liveLabel = formatLiveAction(activity.liveAction, copy);
+  const carriedLabel = carriedPlanLabel(plans, copy);
+  const showActivityStrip =
+    liveLabel !== null || activity.files.length > 0 || activity.toolCount > 0;
+  const activityStrip = showActivityStrip ? (
+    <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted/65 px-2.5 py-1.5 text-xs text-muted-foreground">
+      <Phase phase={activity.phase} />
+      {liveLabel !== null && liveLabel !== copy[activity.phase] && (
+        <span className="min-w-0 truncate text-foreground">{liveLabel}</span>
+      )}
+      {activity.toolCount > 0 && (
+        <FooterMetric separated>
+          {copy.summaryTools.replace("{count}", number(activity.toolCount))}
+        </FooterMetric>
+      )}
+      {activity.files.length > 0 && (
+        <FooterMetric separated>
+          {copy.summaryFiles.replace("{count}", number(activity.files.length))}
+        </FooterMetric>
+      )}
+    </div>
+  ) : null;
+  const pad = compact ? "px-3 py-2.5" : "px-4 py-3";
   if (plans.todoStatus === "not_provided")
     return (
-      <div className="space-y-2 px-4 py-3 text-sm text-muted-foreground">
-        <p>{copy.todoNotProvided}</p>
+      <div className={`space-y-2 ${pad} ${compact ? "text-xs" : "text-sm"} text-muted-foreground`}>
+        {activityStrip}
+        <p>{liveLabel !== null ? copy.todoWaiting : copy.todoNotProvided}</p>
         {claude && (
           <p>
             {copy.claudeTodoHelp}{" "}
@@ -327,10 +533,14 @@ export function ComposerTaskPlan({ snapshot }: { readonly snapshot: DockSnapshot
     );
   const done = plans.steps.filter((step) => step.stage === "Done").length;
   return (
-    <div className="px-4 py-3">
+    <div className={pad}>
+      {activityStrip}
       <div className="mb-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span className="font-mono tabular-nums">
-          {done}/{plans.steps.length}
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <span className="font-mono tabular-nums">
+            {done}/{plans.steps.length}
+          </span>
+          {carriedLabel !== null && <FooterMetric separated>{carriedLabel}</FooterMetric>}
         </span>
         {plans.referenceEtaMs !== null && (
           <span>
@@ -351,15 +561,33 @@ export function ComposerTaskPlan({ snapshot }: { readonly snapshot: DockSnapshot
               ? anchor
               : null;
           return (
-            <li key={step.id} className="flex min-h-10 items-center gap-2.5 py-1.5">
-              <span className={`grid size-5 shrink-0 place-items-center rounded-full ${tone}`}>
-                <Icon aria-hidden="true" className={step.stage === "Done" ? "size-3" : "size-5"} />
+            <li
+              key={step.id}
+              className={`flex items-center gap-2 ${compact ? "min-h-8 py-1" : "min-h-10 gap-2.5 py-1.5"}`}
+            >
+              <span
+                className={`grid shrink-0 place-items-center rounded-full ${compact ? "size-4" : "size-5"} ${tone}`}
+              >
+                <Icon
+                  aria-hidden="true"
+                  className={
+                    step.stage === "Done"
+                      ? compact
+                        ? "size-2.5"
+                        : "size-3"
+                      : compact
+                        ? "size-4"
+                        : "size-5"
+                  }
+                />
               </span>
-              <span className="min-w-0 flex-1 wrap-break-word text-sm font-medium">
+              <span
+                className={`min-w-0 flex-1 wrap-break-word font-medium ${compact ? "text-xs leading-snug" : "text-sm"}`}
+              >
                 <span className="sr-only">{copy[step.stage]}: </span>
                 {step.label}
               </span>
-              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-2xs text-muted-foreground">
                 {step.durationMs !== null || activeClock !== null ? (
                   <ClockLabel elapsedMs={step.durationMs ?? 0} startedAtMs={activeClock} />
                 ) : (
@@ -387,6 +615,8 @@ function TodoPanel({
   const done = plans.steps.filter((step) => step.stage === "Done").length;
   const referenceEtaMs = plans.referenceEtaMs;
   const proposed = plans.proposedPlan;
+  const liveLabel = formatLiveAction(activity.liveAction, copy);
+  const carriedLabel = carriedPlanLabel(plans, copy);
   return (
     <div className="space-y-2.5">
       <Card title={copy.plan}>
@@ -398,8 +628,14 @@ function TodoPanel({
             </span>
           )}
         </div>
+        {liveLabel !== null && liveLabel !== copy[activity.phase] && (
+          <p className="truncate text-xs text-muted-foreground">{liveLabel}</p>
+        )}
         {plans.todoStatus === "provided" ? (
           <>
+            {carriedLabel !== null && (
+              <p className="text-2xs text-muted-foreground">{carriedLabel}</p>
+            )}
             <Progress done={done} total={plans.steps.length} />
             <p aria-description={copy.etaHelp} className="text-2xs text-muted-foreground">
               {copy.eta}:{" "}
@@ -412,7 +648,7 @@ function TodoPanel({
           </>
         ) : (
           <div className="space-y-1 text-xs text-muted-foreground">
-            <p>{copy.todoNotProvided}</p>
+            <p>{liveLabel !== null ? copy.todoWaiting : copy.todoNotProvided}</p>
             {claude && (
               <p>
                 {copy.claudeTodoHelp}{" "}
@@ -656,7 +892,7 @@ function TelemetryPanel({
   readonly details: boolean;
 }) {
   const copy = useDockCopy();
-  const { runStartedAtMs } = useDockRuntime();
+  const { runStartedAtMs, readLiveTps } = useDockRuntime();
   const context = snapshot.contextWindow;
   const run = snapshot.currentRun;
   const local =
@@ -751,7 +987,28 @@ function TelemetryPanel({
       </Card>
       <Card title={copy["output-rate"]}>
         <div className="grid grid-cols-2 gap-2" aria-description={copy.rateHelp}>
-          <Rate name={copy.avgTps} scope={copy.wallTime} value={run?.turnAvgOutputTps} />
+          <Rate
+            name={copy.avgTps}
+            scope={
+              runStartedAtMs !== null &&
+              (snapshot.liveOutputProgress !== null || readLiveTps !== undefined)
+                ? copy.liveRateHelp
+                : copy.wallTime
+            }
+            value={run?.turnAvgOutputTps}
+            live={
+              runStartedAtMs !== null &&
+              (snapshot.liveOutputProgress !== null || readLiveTps !== undefined) ? (
+                <LiveRateLabel
+                  progress={snapshot.liveOutputProgress}
+                  readLiveTps={readLiveTps}
+                  environmentId={snapshot.threadMeta.environmentId}
+                  template="~{value}"
+                  fallback={number(run?.turnAvgOutputTps)}
+                />
+              ) : null
+            }
+          />
           <Rate name={copy.activeTps} scope={copy.activeTime} value={run?.activeOutputTps} />
         </div>
       </Card>
@@ -764,15 +1021,17 @@ function Rate({
   name,
   scope,
   value,
+  live,
 }: {
   readonly name: string;
   readonly scope: string;
   readonly value: number | null | undefined;
+  readonly live?: ReactNode;
 }) {
   return (
     <div className="space-y-0.5 rounded-md bg-muted px-2 py-1.5">
       <p className="text-2xs font-medium">{name}</p>
-      <p className="font-mono text-sm font-semibold tabular-nums">{number(value)}</p>
+      <p className="font-mono text-sm font-semibold tabular-nums">{live ?? number(value)}</p>
       <p className="text-3xs leading-snug text-muted-foreground">{scope}</p>
     </div>
   );

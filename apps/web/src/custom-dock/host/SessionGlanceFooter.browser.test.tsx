@@ -3,7 +3,7 @@ import { expect, it, vi } from "vite-plus/test";
 
 import { act, fakeTimers, render } from "../../../test/render";
 import { DockRuntime, type DockSnapshot } from "./panelContext";
-import { panelDefinition } from "../panels/session-glance";
+import { ComposerTaskPlan, panelDefinition } from "../panels/session-glance";
 
 const snapshot: DockSnapshot = {
   threadMeta: { environmentId: EnvironmentId.make("local"), threadId: ThreadId.make("thread") },
@@ -31,9 +31,12 @@ const snapshot: DockSnapshot = {
   },
   contextWindow: null,
   latestResponseTokens: null,
+  liveOutputProgress: null,
   recentRuns: [],
   plans: {
     todoStatus: "provided",
+    todoScope: "current",
+    todoRunOrdinal: 17,
     referenceEtaMs: null,
     proposedPlan: null,
     steps: [
@@ -49,6 +52,8 @@ const snapshot: DockSnapshot = {
     childLinks: [],
     verification: "unknown",
     activeTool: null,
+    liveAction: null,
+    toolCount: 0,
   },
 };
 
@@ -135,4 +140,94 @@ it("shows elapsed time, an updated Todo and the latest response while the run is
   await screen.rerender(footer(snapshot));
   await expect.element(screen.getByText("This run: 900 tokens")).toBeVisible();
   await expect.element(screen.getByText(/Latest response:|^4s$/)).not.toBeInTheDocument();
+});
+
+it("shows live objective action in the footer and waiting state in task coordination when no Todo exists for the new run", async () => {
+  const active: DockSnapshot = {
+    ...snapshot,
+    plans: {
+      todoStatus: "not_provided",
+      todoScope: "none",
+      todoRunOrdinal: null,
+      referenceEtaMs: null,
+      proposedPlan: null,
+      steps: [],
+    },
+    activity: {
+      ...snapshot.activity,
+      phase: "working",
+      files: [{ path: "apps/web/src/custom-dock/core/plans.ts", additions: 12, deletions: 2 }],
+      changedPaths: ["apps/web/src/custom-dock/core/plans.ts"],
+      liveAction: { kind: "file_change", detail: "plans.ts" },
+      toolCount: 2,
+    },
+  };
+  await using screen = await render(
+    <DockRuntime
+      value={{
+        snapshot: active,
+        runOrdinal: 18,
+        runStartedAtMs: null,
+        claude: false,
+        cwd: undefined,
+      }}
+    >
+      <div className="@container/dock-bar">{panelDefinition.renderComposerBar?.(active)}</div>
+      <ComposerTaskPlan snapshot={active} />
+    </DockRuntime>,
+  );
+  await expect.element(screen.getByText("Run 18")).toBeVisible();
+  await expect.element(screen.getByText("Editing plans.ts").first()).toBeVisible();
+  await expect.element(screen.getByText("Waiting for this run's plan")).toBeVisible();
+  await expect.element(screen.getByText("2 tool calls")).toBeVisible();
+  await expect.element(screen.getByText("1 files changed")).toBeVisible();
+  await expect.element(screen.getByText(/steps/)).not.toBeInTheDocument();
+});
+
+it("labels a carried unfinished plan from an earlier run instead of hiding it", async () => {
+  const carried: DockSnapshot = {
+    ...snapshot,
+    plans: {
+      ...snapshot.plans,
+      todoScope: "carried",
+      todoRunOrdinal: 16,
+    },
+  };
+  await using screen = await render(
+    <DockRuntime
+      value={{
+        snapshot: carried,
+        runOrdinal: 18,
+        runStartedAtMs: null,
+        claude: false,
+        cwd: undefined,
+      }}
+    >
+      <ComposerTaskPlan snapshot={carried} />
+    </DockRuntime>,
+  );
+  await expect.element(screen.getByText("Continuing from Run 16")).toBeVisible();
+  await expect.element(screen.getByText("Run checks")).toBeVisible();
+});
+
+it("ticks live output TPS in the footer while the run is actively reporting output tokens", async () => {
+  const run = snapshot.currentRun!;
+  const live: DockSnapshot = {
+    ...snapshot,
+    latestResponseTokens: 120,
+    liveOutputProgress: { outputTokens: 120, startedAtMs: 3000, reportedAtMs: 6000 },
+    currentRun: {
+      ...run,
+      status: "pending",
+      tokenUsage: null,
+      cacheHitRate: null,
+      turnAvgOutputTps: null,
+    },
+  };
+  using _timers = fakeTimers({ now: 6000 });
+  await using screen = await render(footer(live, 3000));
+  await expect.element(screen.getByText("~40 tok/s")).toBeVisible();
+
+  await act(() => vi.advanceTimersByTime(1000));
+  await expect.element(screen.getByText("~30 tok/s")).toBeVisible();
 });

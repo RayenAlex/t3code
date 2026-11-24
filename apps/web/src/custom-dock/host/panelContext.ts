@@ -16,6 +16,7 @@ type Runtime = {
   readonly runStartedAtMs: number | null;
   readonly claude: boolean;
   readonly cwd: string | undefined;
+  readonly readLiveTps?: (nowMs: number) => number | null;
 };
 
 export const DockRuntime = createContext<Runtime>({

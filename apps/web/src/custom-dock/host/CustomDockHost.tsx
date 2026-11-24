@@ -5,7 +5,16 @@ import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
 import type { EnvironmentThreadStructure } from "@t3tools/client-runtime/state/shell";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { Activity, ChevronUp, Gauge, Globe, ListTodo, PanelRight, X } from "lucide-react";
+import {
+  Activity,
+  ChevronDown,
+  ChevronUp,
+  Gauge,
+  Globe,
+  ListTodo,
+  PanelRight,
+  X,
+} from "lucide-react";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useStore } from "zustand";
 
@@ -20,6 +29,7 @@ import { environmentThreadDetails } from "../../state/threads";
 import { resolveThreadRouteRef } from "../../threadRoutes";
 import { createRunHistory } from "../core/historyDb";
 import { latestDockRun, isTerminalRun, timestampMs } from "../core/runStructure";
+import { deriveLiveStreamTps } from "../core/streamRate";
 import { deriveDockSnapshot, rememberDockRuns } from "../core/threadObserver";
 import { ExternalPanelFrame, ExternalWebSettings } from "../panels/external-web";
 import { ComposerTaskPlan } from "../panels/session-glance";
@@ -27,6 +37,7 @@ import { ComposerAnchorPortal } from "./ComposerAnchorPortal";
 import { DockTab, DockTabList } from "./DockTabs";
 import { composerMetricKeys } from "./dockStore";
 import { DockRuntime, dockPreferences, useDockCopy, useDockRuntime } from "./panelContext";
+import { RightRailTaskPortal, useRightRailGeometry } from "./RightRailTaskSlot";
 import { resolveDockPanels } from "./registry";
 import type { CustomDockPanelDefinition, ExternalWebPanelConfig, RunSummary } from "./types";
 
@@ -398,6 +409,53 @@ export function CompactBar({
   );
 }
 
+function RightRailTaskCard({
+  snapshot,
+  open,
+}: {
+  readonly snapshot: NonNullable<ReturnType<typeof useDockRuntime>["snapshot"]>;
+  readonly open: () => void;
+}) {
+  const copy = useDockCopy();
+  const [minimized, setMinimized] = useState(false);
+  const steps = snapshot.plans.steps;
+  const done = steps.filter((step) => step.stage === "Done").length;
+  return (
+    <>
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border/65 px-3 py-2">
+        <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold">
+          <ListTodo className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="truncate">{copy.tasks}</span>
+          {steps.length > 0 && (
+            <span className="shrink-0 font-mono text-2xs font-normal text-muted-foreground tabular-nums">
+              {done}/{steps.length}
+            </span>
+          )}
+        </span>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Button variant="ghost" size="icon-xs" aria-label={copy.openDock} onClick={open}>
+            <PanelRight aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={minimized ? copy.openTasks : copy.closeTasks}
+            aria-expanded={!minimized}
+            onClick={() => setMinimized((value) => !value)}
+          >
+            {minimized ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}
+          </Button>
+        </div>
+      </header>
+      {!minimized && (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <ComposerTaskPlan snapshot={snapshot} compact />
+        </div>
+      )}
+    </>
+  );
+}
+
 function DockSurfaces({
   scope,
   composer,
@@ -413,6 +471,7 @@ function DockSurfaces({
 }) {
   const copy = useDockCopy();
   const { snapshot } = useDockRuntime();
+  const rightRail = useRightRailGeometry(scope !== null);
   const glance = registry.find((panel) => panel.id === GLANCE);
   function restore() {
     const dock = dockPreferences.getState();
@@ -422,6 +481,11 @@ function DockSurfaces({
   return (
     <>
       <DockShortcut />
+      {rightRail && snapshot && (
+        <RightRailTaskPortal geometry={rightRail}>
+          <RightRailTaskCard snapshot={snapshot} open={openGlance} />
+        </RightRailTaskPortal>
+      )}
       <ComposerAnchorPortal
         threadActive={scope !== null && composer}
         fallback={<Launcher restore={collapsed} onRestore={restore} />}
@@ -437,7 +501,9 @@ function DockSurfaces({
             <CompactBar
               anchor={anchor}
               open={openGlance}
-              panel={snapshot ? <ComposerTaskPlan snapshot={snapshot} /> : null}
+              panel={
+                rightRail === null && snapshot ? <ComposerTaskPlan snapshot={snapshot} /> : null
+              }
               close={
                 scope
                   ? () => dockPreferences.getState().setThreadCollapsed(threadKey(scope), true)
@@ -524,6 +590,18 @@ function DockThread({
       unsubscribe();
     };
   }, [scope]);
+  const readLiveTps = (nowMs: number) => {
+    const runStartedAtMs = sampled?.runStartedAtMs ?? null;
+    if (runStartedAtMs === null) return null;
+    const live = appAtomRegistry.get(environmentThreadDetails.threadAtom(scope));
+    return deriveLiveStreamTps({
+      projection: live?.projection ?? null,
+      runId: sampled?.snapshot.currentRun?.runId ?? null,
+      runStartedAtMs,
+      providerProgress: sampled?.snapshot.liveOutputProgress ?? null,
+      serverNowMs: toServerClock(scope.environmentId, nowMs),
+    });
+  };
   return (
     <DockRuntime
       value={{
@@ -532,6 +610,7 @@ function DockThread({
         runStartedAtMs: sampled?.runStartedAtMs ?? null,
         claude: sampled?.claude === true || shell?.providerInstanceId === "claudeAgent",
         cwd: sampled?.worktreePath ?? project?.workspaceRoot,
+        readLiveTps,
       }}
     >
       {children}
