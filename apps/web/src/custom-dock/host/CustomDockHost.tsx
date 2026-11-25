@@ -49,6 +49,7 @@ import { composerMetricKeys } from "./dockStore";
 import { DockRuntime, dockPreferences, useDockCopy, useDockRuntime } from "./panelContext";
 import { RightRailGeminiQuotaCard } from "./RightRailGeminiQuotaCard";
 import { RightRailGlmQuotaSlot } from "./RightRailGlmQuotaSlot";
+import { RightRailJarRunnerSlot } from "./RightRailJarRunnerSlot";
 import { RightRailTaskPortal, useRightRailGeometry } from "./RightRailTaskSlot";
 import { resolveDockPanels } from "./registry";
 import type { CustomDockPanelDefinition, ExternalWebPanelConfig, RunSummary } from "./types";
@@ -564,6 +565,7 @@ function DockSurfaces({
         <RightRailTaskPortal geometry={rightRail}>
           <RightRailGlmQuotaSlot scope={scope} />
           <RightRailGeminiQuotaSlot scope={scope} router={router} />
+          <RightRailJarRunnerSlot key={threadKey(scope)} scope={scope} />
           {snapshot && (
             <section
               data-custom-dock-right-tasks="inline"
