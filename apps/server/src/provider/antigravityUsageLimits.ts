@@ -16,6 +16,12 @@ import {
   makeUnavailableUsageLimits,
   makeUsageLimits,
 } from "@t3tools/provider-core/server/usageLimits";
+import {
+  type HttpProxySettings,
+  makeProxyFetch,
+  readWindowsSystemProxy,
+  resolveEnvHttpProxy,
+} from "../outboundHttp.ts";
 
 export function antigravityUserAgent(platform: NodeJS.Platform, architecture: NodeJS.Architecture) {
   return `antigravity/hub/2.24.0 (aidev_client; os_type=${platform}; arch=${architecture}; cl=963137146)`;
@@ -317,10 +323,15 @@ function modelWindows(models: typeof Models.Type) {
   return [...windows.values()];
 }
 
+const sameProxy = (a: HttpProxySettings | undefined, b: HttpProxySettings | undefined) =>
+  a?.httpProxy === b?.httpProxy && a?.httpsProxy === b?.httpsProxy && a?.noProxy === b?.noProxy;
+
 export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(function* (input: {
   readonly profileDirectory: string;
   readonly authMethod: AntigravitySettings["authMethod"];
+  readonly environment?: NodeJS.ProcessEnv;
   readonly readKeyringSecret?: Effect.Effect<string | undefined, AntigravityKeyringError>;
+  readonly readSystemProxy?: Effect.Effect<HttpProxySettings | undefined>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -328,6 +339,7 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
   const crypto = yield* Digest.Digest;
   const platform = yield* HostProcess.Platform;
   const architecture = yield* HostProcess.Architecture;
+  const hostEnvironment = yield* HostProcess.Environment;
   const tokenPath = path.join(input.profileDirectory, "antigravity-acp", "acp_token.json");
   const cliTokenPath = path.join(
     input.profileDirectory,
@@ -335,6 +347,11 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
     "antigravity-oauth-token",
   );
   const readKeyringSecret = input.readKeyringSecret ?? readCliKeyringSecret(platform, architecture);
+  const readSystemProxy =
+    input.readSystemProxy ??
+    (platform === "win32"
+      ? Effect.promise(() => readWindowsSystemProxy(platform))
+      : Effect.undefined);
   let cached:
     | { fingerprint: string; account: string; accessToken: string; expiresAt: number }
     | undefined;
@@ -347,6 +364,24 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
       Effect.flatMap((response) => response.json),
       Effect.timeout("10 seconds"),
     );
+  const withProbeProxy = Effect.fn("AntigravityUsageProbe.withProbeProxy")(function* <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ) {
+    const globalProxy = resolveEnvHttpProxy(hostEnvironment);
+    const instanceProxy = input.environment ? resolveEnvHttpProxy(input.environment) : undefined;
+    const overrideProxy =
+      instanceProxy && !sameProxy(instanceProxy, globalProxy)
+        ? instanceProxy
+        : !instanceProxy && !globalProxy && platform === "win32"
+          ? yield* readSystemProxy
+          : undefined;
+    if (!overrideProxy) return yield* effect;
+    return yield* Effect.acquireUseRelease(
+      Effect.sync(() => makeProxyFetch(overrideProxy)),
+      (proxyFetch) => effect.pipe(Effect.provideService(FetchHttpClient.Fetch, proxyFetch.fetch)),
+      (proxyFetch) => Effect.promise(() => proxyFetch.close()),
+    );
+  });
   const read = Effect.gen(function* () {
     const startedGeneration = generation;
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
@@ -456,6 +491,14 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
               ),
             ).pipe(
               Effect.flatMap((response) => parse(response, requestedAt)),
+              Effect.tapError((error) =>
+                Effect.logDebug("Antigravity quota endpoint request failed", {
+                  endpoint,
+                  operation,
+                  errorTag:
+                    typeof error === "object" && error && "_tag" in error ? error._tag : undefined,
+                }),
+              ),
               Effect.orElseSucceed(() => []),
             );
           }),
@@ -482,7 +525,7 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
     }
     return { ...makeUsageLimits({ checkedAt, windows }), credentialFingerprint: account };
   });
-  const probe = read.pipe(
+  const probe = withProbeProxy(read).pipe(
     Effect.provideService(Digest.Digest, crypto),
     Effect.timeout("30 seconds"),
     Effect.catch(() =>

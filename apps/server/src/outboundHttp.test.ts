@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - the test runs a real TLS h2 server to see which protocol fetch negotiates.
+import * as NodeHttp from "node:http";
 import * as NodeHttp2 from "node:http2";
 import * as NodeNet from "node:net";
 import * as NodeTls from "node:tls";
@@ -14,8 +15,12 @@ import { afterAll, afterEach, beforeAll, describe, expect } from "vite-plus/test
 
 import {
   builtinFetchUsesHttp2,
+  configureOutboundFetch,
   ignoreMacosTypeOfServiceEinval,
   installHttp1FetchDispatcher,
+  makeProxyFetch,
+  parseWindowsSystemProxy,
+  resolveEnvHttpProxy,
 } from "./outboundHttp.ts";
 
 // Non-secret, self-signed 127.0.0.1 certificate, valid until 2126; ALPN h2 requires TLS.
@@ -94,6 +99,116 @@ describe("installHttp1FetchDispatcher", () => {
         installHttp1FetchDispatcher();
         expect(yield* versionViaBuiltinFetch()).toBe("1.1");
       }),
+  );
+});
+
+describe("outbound proxy configuration", () => {
+  it("parses valid HTTP/HTTPS proxy env vars, ignores SOCKS/invalid values, and preserves loopback bypass", () => {
+    expect(
+      resolveEnvHttpProxy({
+        HTTPS_PROXY: "http://127.0.0.1:7893",
+        HTTP_PROXY: "socks5h://127.0.0.1:7893",
+        NO_PROXY: "192.168.100.100",
+      }),
+    ).toEqual({
+      httpsProxy: "http://127.0.0.1:7893/",
+      noProxy: "192.168.100.100,localhost,127.0.0.1,::1",
+    });
+
+    expect(
+      resolveEnvHttpProxy({
+        HTTPS_PROXY: "http://127.0.0.1:7893",
+        NODE_USE_ENV_PROXY: "0",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("parses Windows Internet Settings registry proxy entries", () => {
+    expect(
+      parseWindowsSystemProxy(`
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x0
+    ProxyServer    REG_SZ    127.0.0.1:7893
+`),
+    ).toBeUndefined();
+
+    expect(
+      parseWindowsSystemProxy(`
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+    ProxyServer    REG_SZ    127.0.0.1:7893
+    ProxyOverride    REG_SZ    localhost;192.168.100.100;<local>
+`),
+    ).toEqual({
+      httpProxy: "http://127.0.0.1:7893/",
+      httpsProxy: "http://127.0.0.1:7893/",
+      noProxy: "localhost,192.168.100.100,127.0.0.1,::1",
+    });
+
+    expect(
+      parseWindowsSystemProxy(`
+    ProxyEnable    REG_DWORD    0x1
+    ProxyServer    REG_SZ    http=127.0.0.1:8080;https=127.0.0.1:8443;socks=127.0.0.1:1080
+`),
+    ).toEqual({
+      httpProxy: "http://127.0.0.1:8080/",
+      httpsProxy: "http://127.0.0.1:8443/",
+      noProxy: "localhost,127.0.0.1,::1",
+    });
+  });
+
+  it.effect(
+    "routes non-loopback requests through HTTP_PROXY via configureOutboundFetch and makeProxyFetch",
+    () =>
+      Effect.gen(function* () {
+        const seen: string[] = [];
+        const proxyServer = yield* Effect.acquireRelease(
+          Effect.promise(
+            () =>
+              new Promise<NodeHttp.Server>((resolve) => {
+                const srv = NodeHttp.createServer((request, response) => {
+                  seen.push(request.url ?? "");
+                  response.writeHead(200, { "content-type": "text/plain" });
+                  response.end("proxied");
+                });
+                srv.listen(0, "127.0.0.1", () => resolve(srv));
+              }),
+          ),
+          (srv) => Effect.promise(() => new Promise<void>((resolve) => srv.close(() => resolve()))),
+        );
+        const proxyUrl = `http://127.0.0.1:${(proxyServer.address() as NodeNet.AddressInfo).port}`;
+
+        configureOutboundFetch({ HTTP_PROXY: proxyUrl });
+        expect(Undici.getGlobalDispatcher()).toBeInstanceOf(Undici.EnvHttpProxyAgent);
+
+        const globalResponse = yield* HttpClient.get(
+          "http://antigravity.example.invalid/quota",
+        ).pipe(
+          Effect.flatMap((response) => response.text),
+          Effect.provide(FetchHttpClient.layer),
+        );
+        expect(globalResponse).toBe("proxied");
+
+        // Loopback still bypasses the proxy and reaches the local test server directly.
+        expect(yield* Effect.promise(() => versionViaGlobalDispatcher())).toBe("1.1");
+
+        const scopedResponse = yield* Effect.acquireUseRelease(
+          Effect.sync(() => makeProxyFetch({ httpProxy: proxyUrl })),
+          (scoped) =>
+            HttpClient.get("http://antigravity.example.invalid/scoped").pipe(
+              Effect.flatMap((response) => response.text),
+              Effect.provide(FetchHttpClient.layer),
+              Effect.provideService(FetchHttpClient.Fetch, scoped.fetch),
+            ),
+          (scoped) => Effect.promise(() => scoped.close()),
+        );
+        expect(scopedResponse).toBe("proxied");
+
+        expect(seen).toEqual([
+          "http://antigravity.example.invalid/quota",
+          "http://antigravity.example.invalid/scoped",
+        ]);
+      }).pipe(Effect.scoped),
   );
 });
 

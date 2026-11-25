@@ -23,6 +23,8 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeOS from "node:os";
 
+import { configureOutboundFetch } from "./outboundHttp.ts";
+
 function logPathHydrationWarning(message: string, error?: unknown): void {
   process.stderr.write(
     `[server] ${message} ${error instanceof Error ? error.message : (error ?? "")}\n`,
@@ -32,7 +34,19 @@ function logPathHydrationWarning(message: string, error?: unknown): void {
 // __MISE_DIFF is mise's record of the PATH entries it added. It must travel
 // with the shell's PATH, or `mise x` can rebuild PATH behind a same-named
 // wrapper (`exec mise x claude -- claude`) that then re-runs itself forever.
-const LOGIN_SHELL_ENV_NAMES = ["PATH", "__MISE_DIFF", "JAVA_HOME", "T3CODE_FEATURE_FLAGS"] as const;
+// Omit ALL_PROXY: socks5h breaks bundled Python clients without python-socks.
+const PROXY_ENV_PAIRS = [
+  ["HTTP_PROXY", "http_proxy"],
+  ["HTTPS_PROXY", "https_proxy"],
+  ["NO_PROXY", "no_proxy"],
+] as const;
+const LOGIN_SHELL_ENV_NAMES = [
+  "PATH",
+  "__MISE_DIFF",
+  "JAVA_HOME",
+  "T3CODE_FEATURE_FLAGS",
+  ...PROXY_ENV_PAIRS.flat(),
+] as const;
 const LOGIN_SHELL_TIMEOUT = Duration.seconds(5);
 const SLOW_LOGIN_SHELL_TIMEOUT_MS = 20_000;
 
@@ -67,6 +81,11 @@ function applyLoginShellEnvironment(
   // A headless server (systemd, launchd) reads no profile, yet flags belong where users export them.
   if (env.T3CODE_FEATURE_FLAGS === undefined && shellEnvironment.T3CODE_FEATURE_FLAGS) {
     env.T3CODE_FEATURE_FLAGS = shellEnvironment.T3CODE_FEATURE_FLAGS;
+  }
+  for (const [upper, lower] of PROXY_ENV_PAIRS) {
+    if (env[upper] !== undefined || env[lower] !== undefined) continue;
+    if (shellEnvironment[upper]) env[upper] = shellEnvironment[upper];
+    if (shellEnvironment[lower]) env[lower] = shellEnvironment[lower];
   }
 }
 
@@ -218,6 +237,9 @@ export const refreshPathFromLoginShell = Effect.fn("refreshPathFromLoginShell")(
   const shellEnvironment = extractEnvironmentValues(output.value, LOGIN_SHELL_ENV_NAMES);
   if (shellEnvironment.PATH) {
     applyLoginShellEnvironment(env, platform, shellEnvironment);
+    if (PROXY_ENV_PAIRS.flat().some((name) => shellEnvironment[name] !== undefined)) {
+      configureOutboundFetch(env);
+    }
   } else {
     yield* Effect.logWarning(`Login shell ${shell} printed no PATH; PATH is unchanged.`);
   }

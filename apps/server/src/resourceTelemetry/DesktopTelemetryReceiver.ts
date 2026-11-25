@@ -35,6 +35,7 @@ import * as Ndjson from "effect/encoding/Ndjson";
 
 import { eventVersion as messageVersion } from "./NativeTelemetryClient.ts";
 import * as ServerConfig from "../config.ts";
+import { configureOutboundFetch } from "../outboundHttp.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { subscribeBeforeSnapshotWithoutMutex } from "../utils/subscribeBeforeSnapshot.ts";
 
@@ -242,6 +243,13 @@ export function makeApplyDesktopShellEnvironmentSnapshot(
       });
     }
     applyShellEnvironment(environment, message.environment, platform);
+    if (
+      Object.keys(message.environment).some((key) =>
+        /^(?:http_proxy|https_proxy|no_proxy|node_use_env_proxy)$/i.test(key),
+      )
+    ) {
+      configureOutboundFetch(environment);
+    }
     if (message.environment.NODE_EXTRA_CA_CERTS !== undefined) {
       yield* Effect.gen(function* () {
         const certificates = baseCertificates;

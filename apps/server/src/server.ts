@@ -44,6 +44,7 @@ import {
 } from "./httpResponseErrorGuard.ts";
 import { resolveLauncherPath } from "./cloud/pinnedRuntime.ts";
 import { fixPath } from "./os-jank.ts";
+import { configureOutboundFetch } from "./outboundHttp.ts";
 import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -988,6 +989,7 @@ const layerMakeServer = Layer.unwrap(
     // fixPath rewrites PATH, so pin the launcher the shell chose before it does.
     const invokedAs = (yield* resolveLauncherPath) ?? (yield* HostProcess.InvokedAs);
     yield* fixPath({ shellEnvironmentPrepared: config.shellEnvironmentPrepared });
+    configureOutboundFetch(yield* HostProcess.Environment);
 
     const layerHttpListening = Layer.effectDiscard(
       Effect.gen(function* () {

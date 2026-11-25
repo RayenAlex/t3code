@@ -122,6 +122,12 @@ const LOGIN_SHELL_ENV_NAMES = [
   "SSL_CERT_FILE",
   "SSL_CERT_DIR",
   "NODE_EXTRA_CA_CERTS",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
   "T3CODE_TELEMETRY_ENABLED",
   "T3CODE_FEATURE_FLAGS",
   "T3CODE_RELEASE_BASE_URL",
@@ -129,7 +135,19 @@ const LOGIN_SHELL_ENV_NAMES = [
   "JAVA_HOME",
   "PNPM_HOME",
 ] as const;
-const WINDOWS_PROFILE_ENV_NAMES = ["PATH", "FNM_DIR", "FNM_MULTISHELL_PATH"] as const;
+const PROXY_ENV_PAIRS = [
+  ["HTTP_PROXY", "http_proxy"],
+  ["HTTPS_PROXY", "https_proxy"],
+  ["NO_PROXY", "no_proxy"],
+] as const;
+const WINDOWS_PROFILE_ENV_NAMES = [
+  "PATH",
+  "FNM_DIR",
+  "FNM_MULTISHELL_PATH",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+] as const;
 const LOCALE_ENV_NAMES = ["LANG", "LC_ALL", "LC_CTYPE"] as const;
 const ANDROID_SDK_ENV_NAMES = ["ANDROID_HOME", "ANDROID_SDK_ROOT"] as const;
 const FALLBACK_LC_CTYPE = "en_US.UTF-8";
@@ -454,6 +472,11 @@ const installWindowsEnvironment = Effect.fn("desktop.shellEnvironment.installWin
     if (!config.env.FNM_MULTISHELL_PATH && profile.FNM_MULTISHELL_PATH) {
       config.env.FNM_MULTISHELL_PATH = profile.FNM_MULTISHELL_PATH;
     }
+    for (const [upper, lower] of PROXY_ENV_PAIRS) {
+      if (!config.env[upper] && !config.env[lower] && profile[upper]) {
+        config.env[upper] = profile[upper];
+      }
+    }
     return Boolean(noProfile.PATH && profile.PATH);
   },
 );
@@ -560,6 +583,11 @@ const installPosixEnvironment = Effect.fn("desktop.shellEnvironment.installPosix
       if (!config.env[name] && shellEnvironment[name]) {
         config.env[name] = shellEnvironment[name];
       }
+    }
+    for (const [upper, lower] of PROXY_ENV_PAIRS) {
+      if (config.env[upper] !== undefined || config.env[lower] !== undefined) continue;
+      if (shellEnvironment[upper]) config.env[upper] = shellEnvironment[upper];
+      if (shellEnvironment[lower]) config.env[lower] = shellEnvironment[lower];
     }
 
     // The device host picks the Android SDK from ANDROID_HOME before ANDROID_SDK_ROOT,

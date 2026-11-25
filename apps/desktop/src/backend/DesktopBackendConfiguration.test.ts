@@ -796,6 +796,10 @@ describe("DesktopBackendConfiguration", () => {
         assert.include((config.env.WSLENV ?? "").split(":"), "T3CODE_TELEMETRY_ENABLED");
         assert.equal(config.env.OTEL_RESOURCE_ATTRIBUTES, "deployment.environment.name=staging");
         assert.include((config.env.WSLENV ?? "").split(":"), "OTEL_RESOURCE_ATTRIBUTES");
+        assert.equal(config.env.HTTPS_PROXY, "http://127.0.0.1:7893");
+        assert.include((config.env.WSLENV ?? "").split(":"), "HTTPS_PROXY");
+        assert.equal(config.env.NO_PROXY, "localhost,127.0.0.1");
+        assert.include((config.env.WSLENV ?? "").split(":"), "NO_PROXY");
       }).pipe(
         Effect.provide(
           layerBackendConfiguration().pipe(
@@ -816,6 +820,8 @@ describe("DesktopBackendConfiguration", () => {
           OTEL_SDK_DISABLED: "true",
           T3CODE_TELEMETRY_ENABLED: "false",
           OTEL_RESOURCE_ATTRIBUTES: "deployment.environment.name=staging",
+          HTTPS_PROXY: "http://127.0.0.1:7893",
+          NO_PROXY: "localhost,127.0.0.1",
         }),
       );
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),

@@ -783,4 +783,65 @@ describe("Antigravity subscription limits", () => {
       }
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
+
+  it.effect(
+    "uses a scoped proxy fetch for provider-instance or Windows system proxy overrides",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const profileDirectory = yield* fs.makeTempDirectoryScoped();
+        yield* fs.makeDirectory(path.join(profileDirectory, "antigravity-acp"));
+        yield* fs.writeFileString(
+          path.join(profileDirectory, "antigravity-acp", "antigravity-oauth-token"),
+          JSON.stringify({
+            token: { access_token: "access-token", expiry: "2099-01-01T00:00:00Z" },
+          }),
+        );
+
+        const seenCustomFetch: boolean[] = [];
+        const http = HttpClient.make((request, _url, _signal, fiber) =>
+          Effect.sync(() => {
+            seenCustomFetch.push(fiber.getRef(FetchHttpClient.Fetch) !== globalThis.fetch);
+            return HttpClientResponse.fromWeb(
+              request,
+              request.url.endsWith(":retrieveUserQuotaSummary")
+                ? Response.json(summary)
+                : Response.json({ id: "google-user-1" }),
+            );
+          }),
+        );
+
+        const instanceProbe = yield* makeAntigravityUsageProbe({
+          profileDirectory,
+          authMethod: "oauth-personal",
+          environment: { HTTPS_PROXY: "http://127.0.0.1:7893" },
+          readKeyringSecret: Effect.undefined,
+        }).pipe(
+          Effect.provideService(HostProcess.Platform, "linux"),
+          Effect.provideService(HostProcess.Environment, {}),
+          Effect.provideService(HttpClient.HttpClient, http),
+        );
+        expect((yield* instanceProbe.probe).windows).toHaveLength(4);
+        expect(seenCustomFetch.every(Boolean)).toBe(true);
+
+        seenCustomFetch.length = 0;
+        const winSystemProxyProbe = yield* makeAntigravityUsageProbe({
+          profileDirectory,
+          authMethod: "oauth-personal",
+          readKeyringSecret: Effect.undefined,
+          readSystemProxy: Effect.succeed({
+            httpProxy: "http://127.0.0.1:7893/",
+            httpsProxy: "http://127.0.0.1:7893/",
+            noProxy: "localhost,127.0.0.1,::1",
+          }),
+        }).pipe(
+          Effect.provideService(HostProcess.Platform, "win32"),
+          Effect.provideService(HostProcess.Environment, {}),
+          Effect.provideService(HttpClient.HttpClient, http),
+        );
+        expect((yield* winSystemProxyProbe.probe).windows).toHaveLength(4);
+        expect(seenCustomFetch.every(Boolean)).toBe(true);
+      }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  );
 });

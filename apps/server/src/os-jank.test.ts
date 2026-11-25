@@ -197,6 +197,61 @@ effectIt.effect(
     ),
 );
 
+effectIt.effect(
+  "hydrates missing HTTP/HTTPS/NO_PROXY variables from the login shell without overriding explicit ones",
+  () =>
+    Effect.acquireUseRelease(
+      Effect.sync(() =>
+        vi
+          .spyOn(NodeChildProcess, "execFileSync")
+          .mockReturnValue(
+            [
+              "__T3CODE_ENV_PATH_START__",
+              "/usr/local/bin",
+              "__T3CODE_ENV_PATH_END__",
+              "__T3CODE_ENV_HTTP_PROXY_START__",
+              "http://127.0.0.1:7893",
+              "__T3CODE_ENV_HTTP_PROXY_END__",
+              "__T3CODE_ENV_HTTPS_PROXY_START__",
+              "http://127.0.0.1:7893",
+              "__T3CODE_ENV_HTTPS_PROXY_END__",
+              "__T3CODE_ENV_https_proxy_START__",
+              "http://127.0.0.1:7893",
+              "__T3CODE_ENV_https_proxy_END__",
+              "__T3CODE_ENV_NO_PROXY_START__",
+              "localhost,127.0.0.1,192.168.100.100",
+              "__T3CODE_ENV_NO_PROXY_END__",
+            ].join("\n"),
+          ),
+      ),
+      () =>
+        Effect.gen(function* () {
+          const missing: NodeJS.ProcessEnv = { SHELL: "/usr/bin/zsh", PATH: "/usr/bin" };
+          const explicitLower: NodeJS.ProcessEnv = {
+            SHELL: "/usr/bin/zsh",
+            PATH: "/usr/bin",
+            https_proxy: "http://127.0.0.1:9000",
+          };
+
+          for (const env of [missing, explicitLower]) {
+            yield* fixPath().pipe(
+              Effect.provideService(HostProcess.Platform, "linux"),
+              Effect.provideService(HostProcess.Environment, env),
+              Effect.provide(NodeServices.layer),
+            );
+          }
+
+          assert.equal(missing.HTTP_PROXY, "http://127.0.0.1:7893");
+          assert.equal(missing.HTTPS_PROXY, "http://127.0.0.1:7893");
+          assert.equal(missing.https_proxy, "http://127.0.0.1:7893");
+          assert.equal(missing.NO_PROXY, "localhost,127.0.0.1,192.168.100.100");
+          assert.equal(explicitLower.https_proxy, "http://127.0.0.1:9000");
+          assert.equal(explicitLower.HTTPS_PROXY, undefined);
+        }),
+      (probe) => Effect.sync(() => probe.mockRestore()),
+    ),
+);
+
 effectIt.effect("replaces a Path-spelled Windows PATH instead of adding a second key", () =>
   Effect.gen(function* () {
     const env: NodeJS.ProcessEnv = { Path: "C:\\Windows" };
