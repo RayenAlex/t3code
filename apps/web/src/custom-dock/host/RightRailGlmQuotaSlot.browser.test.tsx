@@ -125,3 +125,32 @@ it("supports an explicit alias but hides expired quota without a new request", a
   expect(read).toHaveBeenCalledTimes(4);
   expect(read.mock.calls.at(-1)?.[0]).toEqual({ environmentId, input: labeledGlmModel });
 });
+
+it("shows a separate GPT title and re-reads when changing from GLM to GPT", async () => {
+  const gptModel = { instanceId, model: "openai/magpie-route" };
+  const read = vi.fn<Parameters<typeof GlmQuotaSelection>[0]["read"]>().mockResolvedValue(snapshot);
+  const props = { environmentId, binding, now, read };
+  await using screen = await render(
+    <div className="w-64">
+      <GlmQuotaSelection {...props} model={glmModel} />
+    </div>,
+  );
+  await expect.element(screen.getByRole("region", { name: "GLM quota" })).toBeVisible();
+  await screen.rerender(
+    <div className="w-64">
+      <GlmQuotaSelection
+        {...props}
+        binding={binding}
+        gptBinding={{ ...binding, modelAliases: [] }}
+        model={gptModel}
+        modelName="GPT-6.1 · Codex"
+      />
+    </div>,
+  );
+  await expect.element(screen.getByRole("region", { name: "GPT quota" })).toBeVisible();
+  await expect.element(screen.getByText("77% left")).toBeVisible();
+  await expect.element(screen.getByText("36% left")).toBeVisible();
+  await expect.element(screen.getByRole("region", { name: "GLM quota" })).not.toBeInTheDocument();
+  expect(read).toHaveBeenCalledTimes(2);
+  expect(read.mock.calls.at(-1)?.[0]).toEqual({ environmentId, input: gptModel });
+});

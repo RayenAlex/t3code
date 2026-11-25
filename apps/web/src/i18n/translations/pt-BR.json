@@ -12800,7 +12800,6 @@
   "33d18dda74f6d7b3": "Cancelar merge automático da pilha",
   "012c67c7f1a99e33": "Merge automático da pilha",
   "e7bd85d8b3874962": "Chave salva",
-  "ab219f23fc6c9dca": "Exibe a cota GLM em cache para instâncias do Claude Code e do Codex que usam este gateway. Salvar não altera o roteamento de modelos.",
   "37a190f7a614890d": "Mostrar cota GLM",
   "586ed97939f2d9c4": "URL do gateway Magpie",
   "8118d18df10f9f95": "Provedor da cota Magpie",
@@ -12810,5 +12809,10 @@
   "e24e5591c72f196f": "Chave do gateway Magpie (se necessária)",
   "e0f012688b7a3eb3": "Limpar chave salva",
   "a430af90722b0830": "Salvar configurações do Magpie",
-  "a962584b1f3fda1d": "Magpie GLM"
+  "1172ed54977ca854": "Cota do Magpie",
+  "e76cd3a269d01fc2": "Mostra a cota de GLM ou GPT armazenada no cache do Magpie. Salvar não altera o roteamento dos modelos.",
+  "50da9833accd7700": "Mostrar cota do GPT",
+  "ed504552e0620810": "A cota do GPT é exibida para instâncias conectadas a este gateway. Deixe o nome da conta em branco apenas se o Magpie tiver uma única assinatura do Codex.",
+  "cecd8437a8dc565f": "Nome da conta do Codex (opcional)",
+  "25abe03e3a72e677": "Aliases de modelos GPT (separados por vírgulas)"
 }

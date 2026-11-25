@@ -12800,7 +12800,6 @@
   "33d18dda74f6d7b3": "Annuler la fusion automatique de la pile",
   "012c67c7f1a99e33": "Fusion automatique de la pile",
   "e7bd85d8b3874962": "Clé enregistrée",
-  "ab219f23fc6c9dca": "Affiche le quota GLM en cache pour les instances de Claude Code et Codex qui utilisent cette passerelle. L’enregistrement ne modifie pas le routage des modèles.",
   "37a190f7a614890d": "Afficher le quota GLM",
   "586ed97939f2d9c4": "URL de la passerelle Magpie",
   "8118d18df10f9f95": "Fournisseur du quota Magpie",
@@ -12810,5 +12809,10 @@
   "e24e5591c72f196f": "Clé de la passerelle Magpie (si nécessaire)",
   "e0f012688b7a3eb3": "Effacer la clé enregistrée",
   "a430af90722b0830": "Enregistrer les paramètres Magpie",
-  "a962584b1f3fda1d": "Magpie GLM"
+  "1172ed54977ca854": "Quota Magpie",
+  "e76cd3a269d01fc2": "Affiche le quota GLM ou GPT mis en cache par Magpie. L’enregistrement ne modifie pas le routage des modèles.",
+  "50da9833accd7700": "Afficher le quota GPT",
+  "ed504552e0620810": "Le quota GPT s’affiche pour les instances connectées à cette passerelle. Laissez le nom du compte vide uniquement si Magpie ne contient qu’un abonnement Codex.",
+  "cecd8437a8dc565f": "Nom du compte Codex (facultatif)",
+  "25abe03e3a72e677": "Alias de modèles GPT (séparés par des virgules)"
 }

@@ -245,6 +245,129 @@ it.layer(NodeServices.layer)("Magpie GLM quota", (it) => {
     }),
   );
 
+  it.effect(
+    "selects the configured Codex subscription without mixing it with GLM or another gateway",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const provider = (instanceId: ProviderInstanceId, endpoint: string | undefined) =>
+          ({
+            instanceId,
+            enabled: true,
+            driver: "codex",
+            auth: { endpoint },
+            models: [
+              {
+                slug: "openai/magpie-route",
+                name: "GPT-6.1 · Codex",
+                isCustom: false,
+                capabilities: null,
+              },
+            ],
+          }) as unknown as ServerProvider;
+        const native = ProviderInstanceId.make("native-codex");
+        const other = ProviderInstanceId.make("other-gateway");
+        const codex = {
+          provider: "codex",
+          kind: "subscription",
+          user: "work",
+          alias: "Work Codex",
+          readAt: READ_AT,
+          windows: [
+            { ...WINDOWS[0], used: 38 },
+            { ...WINDOWS[1], used: 72 },
+            { name: "Image generation", used: 100, text: true },
+          ],
+          routing: CARD.routing,
+        };
+        let cards = [
+          CARD,
+          codex,
+          { ...codex, user: "other", alias: "Other Codex" },
+          { ...codex, from: "remote" },
+          { ...codex, kind: "plan" },
+        ];
+        const calls: Array<readonly [string, string | null]> = [];
+        yield* Effect.gen(function* () {
+          const settings = yield* ServerSettings.ServerSettingsService;
+          const quota = yield* MagpieGlmQuota.MagpieGlmQuota;
+          const read = (model: string, instanceId = INSTANCE) => quota.read({ instanceId, model });
+          const saved = {
+            ...CONFIG,
+            enabled: true,
+            kind: "plan" as const,
+            gatewayKey: "test-gpt-gateway-key",
+            revision: "gpt",
+          };
+          yield* settings.updateSettings({ magpieGlmQuota: saved });
+          expect(yield* read("gpt-6.1")).toEqual({ status: "notApplicable" });
+          const gpt = {
+            enabled: true,
+            user: "Work Codex",
+            modelAliases: ["gpt-custom-alias", "daily-route"],
+          };
+          yield* settings.updateSettings({ magpieGlmQuota: { ...saved, gpt } });
+          expect(yield* read("gpt-6.1", native)).toEqual({ status: "notApplicable" });
+          expect(yield* read("gpt-6.1", other)).toEqual({ status: "notApplicable" });
+          expect(calls).toEqual([]);
+          expect(yield* read("zhipu/glm-5")).toMatchObject({
+            status: "ready",
+            windows: [{ id: "glm-5h" }, { id: "glm-weekly" }],
+          });
+          const snapshot = {
+            status: "ready",
+            checkedAt: READ_AT,
+            windows: [
+              { id: "gpt-5h", kind: "session", usedPercent: 38, resetsAt: RESET },
+              { id: "gpt-weekly", kind: "weekly", usedPercent: 72, resetsAt: WEEKLY_RESET },
+            ],
+          };
+          expect(yield* read("openai/gpt-6.1")).toMatchObject(snapshot);
+          expect(yield* read("openai/magpie-route")).toMatchObject(snapshot);
+          expect(yield* read("daily-route")).toMatchObject(snapshot);
+          expect(calls).toEqual(
+            Array.from({ length: 4 }, () => [
+              `${ORIGIN}/v1/magpie/quotas/cards`,
+              "Bearer test-gpt-gateway-key",
+            ]),
+          );
+          yield* settings.updateSettings({
+            magpieGlmQuota: { ...saved, enabled: false, gpt: { ...gpt, user: "" } },
+          });
+          expect(yield* read("gpt-6.1")).toEqual({ status: "ambiguous" });
+          cards = [CARD, codex];
+          expect(yield* read("gpt-6.1")).toMatchObject(snapshot);
+          cards = [{ ...codex, readAt: "2026-11-25T11:00:00Z" }];
+          expect(yield* read("gpt-6.1")).toEqual({ status: "unconfirmed" });
+          cards = [{ ...codex, from: "remote" }];
+          expect(yield* read("gpt-6.1")).toEqual({ status: "noCard" });
+        }).pipe(
+          Effect.provide(
+            MagpieGlmQuota.layer.pipe(
+              Layer.provideMerge(
+                Layer.mergeAll(
+                  ServerSettings.layerTest(),
+                  Layer.mock(ProviderRegistry.ProviderRegistry)({
+                    getProviders: Effect.succeed([
+                      provider(INSTANCE, ORIGIN),
+                      provider(native, undefined),
+                      provider(other, LAN_ORIGIN),
+                    ]),
+                  }),
+                  FetchHttpClient.layer,
+                ),
+              ),
+            ),
+          ),
+          Effect.provideService(HostProcess.Environment, {}),
+          Effect.provideService(FetchHttpClient.Fetch, async (url, init) => {
+            calls.push([String(url), new Headers(init?.headers).get("authorization")]);
+            return Response.json({ data: cards });
+          }),
+        );
+      }),
+  );
+
   it.effect("loads only the bound plan's model windows through the fixed read-only endpoint", () =>
     Effect.gen(function* () {
       const { result, calls } = yield* readWith({ cards: [{ ...CARD, user: "other" }, CARD] });

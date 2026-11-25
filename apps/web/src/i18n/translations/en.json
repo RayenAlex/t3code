@@ -12809,7 +12809,6 @@
   "33d18dda74f6d7b3": "Cancel stack auto-merge",
   "012c67c7f1a99e33": "Auto-merge stack",
   "e7bd85d8b3874962": "Key saved",
-  "ab219f23fc6c9dca": "Show cached GLM quota for Claude Code and Codex instances using this gateway. Saving does not change model routing.",
   "37a190f7a614890d": "Show GLM quota",
   "586ed97939f2d9c4": "Magpie gateway URL",
   "8118d18df10f9f95": "Magpie quota provider",
@@ -12819,5 +12818,10 @@
   "e24e5591c72f196f": "Magpie gateway key (if required)",
   "e0f012688b7a3eb3": "Clear saved key",
   "a430af90722b0830": "Save Magpie settings",
-  "a962584b1f3fda1d": "Magpie GLM"
+  "1172ed54977ca854": "Magpie quota",
+  "e76cd3a269d01fc2": "Show cached GLM or GPT quota from Magpie. Saving does not change model routing.",
+  "50da9833accd7700": "Show GPT quota",
+  "ed504552e0620810": "GPT quota is shown for instances connected to this gateway. Leave the account name blank only if Magpie has one Codex subscription.",
+  "cecd8437a8dc565f": "Codex account name (optional)",
+  "25abe03e3a72e677": "GPT model aliases (comma-separated)"
 }

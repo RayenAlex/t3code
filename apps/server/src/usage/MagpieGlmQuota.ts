@@ -4,9 +4,10 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   TrimmedNonEmptyString,
-  isGlmModel,
   isMagpieGlmDriver,
   magpieGatewayOrigin,
+  magpieQuotaFamily,
+  type MagpieQuotaFamily,
   type MagpieGlmQuota as Quota,
   type MagpieGlmQuotaBinding,
   type MagpieGlmQuotaInput,
@@ -52,6 +53,7 @@ const Config = Schema.fromJsonString(
 const CardIdentity = Schema.Struct({
   provider: Schema.String,
   user: Schema.optional(Schema.String),
+  alias: Schema.optional(Schema.String),
   kind: Schema.String,
   from: Schema.optional(Schema.String),
 });
@@ -119,14 +121,15 @@ const gatewayHeaders = Effect.fn("MagpieGlmQuota.gatewayHeaders")(function* (
 });
 
 const CADENCES = [
-  { id: "glm-5h", kind: "session", label: "5 hours", windowDurationMins: 300 },
-  { id: "glm-weekly", kind: "weekly", label: "7 days", windowDurationMins: 10_080 },
+  { id: "5h", kind: "session", label: "5 hours", windowDurationMins: 300 },
+  { id: "weekly", kind: "weekly", label: "7 days", windowDurationMins: 10_080 },
 ] as const;
 
 function toWindow(
   raw: unknown,
   routing: unknown,
   now: number,
+  family: MagpieQuotaFamily,
 ): ServerProviderUsageWindow | undefined {
   const window = Option.getOrUndefined(decodeWindow(raw));
   const route = Option.getOrUndefined(decodeRouting(routing));
@@ -142,12 +145,13 @@ function toWindow(
   if (!cadence || !Number.isFinite(resetsAt) || resetsAt <= now) return;
   return {
     ...cadence,
+    id: `${family}-${cadence.id}`,
     usedPercent: window.used,
     resetsAt: DateTime.formatIso(DateTime.makeUnsafe(resetsAt)),
   };
 }
 
-function toQuota(card: unknown, now: number): Quota {
+function toQuota(card: unknown, now: number, family: MagpieQuotaFamily): Quota {
   const reading = Option.getOrUndefined(decodeCardReading(card));
   if (!reading || reading.error) return { status: "unconfirmed" };
   const readAt = Date.parse(reading.readAt ?? reading.asOf ?? "");
@@ -156,11 +160,11 @@ function toQuota(card: unknown, now: number): Quota {
     return { status: "unconfirmed" };
   const routing = reading.routing?.length === reading.windows.length ? reading.routing : undefined;
   const parsed = reading.windows.flatMap((raw, index) => {
-    const window = toWindow(raw, routing?.[index], now);
+    const window = toWindow(raw, routing?.[index], now, family);
     return window ? [window] : [];
   });
   const windows = CADENCES.flatMap(({ id }) => {
-    const matches = parsed.filter((window) => window.id === id);
+    const matches = parsed.filter((window) => window.id === `${family}-${id}`);
     return matches.length === 1 ? matches : [];
   });
   return windows.length === 0
@@ -219,7 +223,7 @@ const make = Effect.gen(function* () {
     const settings = yield* getSettings.pipe(Effect.option);
     if (Option.isNone(settings)) return { status: "unreachable" };
     const saved = settings.value.magpieGlmQuota;
-    if (saved && !saved.enabled) return { status: "notConfigured" };
+    if (saved && !saved.enabled && !saved.gpt?.enabled) return { status: "notConfigured" };
     const config = saved ?? legacy;
     const origin = saved ? magpieGatewayOrigin(saved.url) : legacyOrigin;
     if (!origin || !config) return { status: "notConfigured" };
@@ -237,9 +241,17 @@ const make = Effect.gen(function* () {
       return { status: "notApplicable" };
     }
     const modelName = provider.models?.find((entry) => entry.slug === input.model)?.name;
-    if (!isGlmModel(input.model, config.modelAliases, modelName)) {
-      return { status: "notApplicable" };
-    }
+    const gpt = saved?.gpt?.enabled && provider.auth.endpoint === origin ? saved.gpt : undefined;
+    const family = magpieQuotaFamily(
+      input.model,
+      modelName,
+      !saved || saved.enabled ? (config.modelAliases ?? []) : undefined,
+      gpt?.modelAliases,
+    );
+    if (!family) return { status: "notApplicable" };
+    const cardProvider = family === "gpt" ? "codex" : config.provider;
+    const cardKind = family === "gpt" ? "subscription" : (config.kind ?? "plan");
+    const cardUser = family === "gpt" ? gpt?.user : (config.user ?? "");
     const headers = saved
       ? saved.gatewayKey && saved.gatewayKey !== SECRET_REDACTED
         ? { authorization: `Bearer ${saved.gatewayKey}` }
@@ -264,9 +276,10 @@ const make = Effect.gen(function* () {
       return (
         card &&
         !card.from &&
-        card.provider === config.provider &&
-        (card.user ?? "") === (config.user ?? "") &&
-        card.kind === (config.kind ?? "plan")
+        card.provider === cardProvider &&
+        card.kind === cardKind &&
+        ((card.user ?? "") === cardUser ||
+          (family === "gpt" && (!cardUser || card.alias === cardUser)))
       );
     });
     if (matches.length === 0) return { status: "noCard" };
@@ -274,6 +287,7 @@ const make = Effect.gen(function* () {
     return toQuota(
       matches[0],
       yield* DateTime.nowAsDate.pipe(Effect.map((date) => date.getTime())),
+      family,
     );
   });
   return MagpieGlmQuota.of({

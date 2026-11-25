@@ -22,7 +22,7 @@ interface Props {
 export function MagpieGlmQuotaSettings({ environmentId, config, readOnly }: Props) {
   const gt = useGT();
   return (
-    <SettingsSection title={gt("Magpie GLM")}>
+    <SettingsSection title={gt("Magpie quota")}>
       <MagpieGlmQuotaForm
         key={`${environmentId}:${config?.revision ?? "new"}`}
         {...{ environmentId, config, readOnly }}
@@ -41,25 +41,22 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
   const [user, setUser] = useState(config?.user ?? "");
   const [subscription, setSubscription] = useState(config?.kind === "subscription");
   const [aliases, setAliases] = useState(config?.modelAliases.join(", ") ?? "");
+  const [gptEnabled, setGptEnabled] = useState(config?.gpt?.enabled ?? false);
+  const [gptUser, setGptUser] = useState(config?.gpt?.user ?? "");
+  const [gptAliases, setGptAliases] = useState(config?.gpt?.modelAliases.join(", ") ?? "");
   const [key, setKey] = useState("");
   const [removeKey, setRemoveKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const origin = magpieGatewayOrigin(url.trim());
   const keepKey = !removeKey && config !== null && origin === magpieGatewayOrigin(config.url);
-  const modelAliases = [
-    ...new Set(
-      aliases
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean),
-    ),
-  ];
+  const modelAliases = parseModelAliases(aliases);
+  const gptModelAliases = parseModelAliases(gptAliases);
   const canSave =
     !readOnly &&
     !saving &&
     origin !== undefined &&
     provider.trim() !== "" &&
-    modelAliases.every((alias) => alias.length <= 512);
+    [...modelAliases, ...gptModelAliases].every((alias) => alias.length <= 512);
 
   return (
     <form
@@ -77,6 +74,7 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
               user: user.trim(),
               kind: subscription ? "subscription" : "plan",
               modelAliases,
+              gpt: { enabled: gptEnabled, user: gptUser.trim(), modelAliases: gptModelAliases },
               gatewayKey: key.trim() || (keepKey ? config.gatewayKey : ""),
               revision: randomUUID(),
             },
@@ -92,10 +90,7 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
       }}
     >
       <p className="text-xs text-muted-foreground">
-        <T>
-          Show cached GLM quota for Claude Code and Codex instances using this gateway. Saving does
-          not change model routing.
-        </T>
+        <T>Show cached GLM or GPT quota from Magpie. Saving does not change model routing.</T>
       </p>
       <fieldset className="grid min-w-0 gap-3" disabled={readOnly || saving}>
         <Label htmlFor={`${id}-enabled`}>
@@ -131,6 +126,28 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
           <T>GLM model aliases (comma-separated)</T>
           <Input value={aliases} onChange={(event) => setAliases(event.target.value)} />
         </Label>
+        <Label htmlFor={`${id}-gpt`}>
+          <Switch id={`${id}-gpt`} checked={gptEnabled} onCheckedChange={setGptEnabled} />
+          <T>Show GPT quota</T>
+        </Label>
+        {gptEnabled ? (
+          <>
+            <p className="text-xs text-muted-foreground">
+              <T>
+                GPT quota is shown for instances connected to this gateway. Leave the account name
+                blank only if Magpie has one Codex subscription.
+              </T>
+            </p>
+            <Label className="grid">
+              <T>Codex account name (optional)</T>
+              <Input value={gptUser} onChange={(event) => setGptUser(event.target.value)} />
+            </Label>
+            <Label className="grid">
+              <T>GPT model aliases (comma-separated)</T>
+              <Input value={gptAliases} onChange={(event) => setGptAliases(event.target.value)} />
+            </Label>
+          </>
+        ) : null}
         <Label className="grid">
           <T>Magpie gateway key (if required)</T>
           <Input
@@ -161,4 +178,15 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
       </Button>
     </form>
   );
+}
+
+function parseModelAliases(value: string) {
+  return [
+    ...new Set(
+      value
+        .split(",")
+        .map((alias) => alias.trim())
+        .filter(Boolean),
+    ),
+  ];
 }

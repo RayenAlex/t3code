@@ -1,6 +1,7 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
+import stylesheet from "~/index.css?inline";
 import { render } from "../../../test/render";
 import { MagpieGlmQuotaSettings } from "./MagpieGlmQuotaSettings";
 
@@ -11,6 +12,10 @@ vi.mock(import("../../hooks/useSettings"), async (original) => ({
 }));
 
 it("saves one gateway for both providers without putting a key in the instance environment", async () => {
+  const style = document.createElement("style");
+  style.textContent = stylesheet;
+  document.head.append(style);
+  using _style = { [Symbol.dispose]: () => style.remove() };
   await using screen = await render(
     <MagpieGlmQuotaSettings
       environmentId={EnvironmentId.make("local")}
@@ -27,6 +32,12 @@ it("saves one gateway for both providers without putting a key in the instance e
     screen.getByLabelText("GLM model aliases (comma-separated)"),
     " daily , daily, weekly ",
   );
+  await screen.getByRole("switch", { name: "Show GPT quota" }).click();
+  await userEvent.fill(screen.getByLabelText("Codex account name (optional)"), " work-codex ");
+  await userEvent.fill(
+    screen.getByLabelText("GPT model aliases (comma-separated)"),
+    " daily-gpt, daily-gpt ",
+  );
   await userEvent.fill(screen.getByLabelText("Magpie gateway key (if required)"), "fake-test-key");
   await save.click();
   expect(update).toHaveBeenCalledExactlyOnceWith(
@@ -38,6 +49,7 @@ it("saves one gateway for both providers without putting a key in the instance e
         user: "",
         kind: "plan",
         modelAliases: ["daily", "weekly"],
+        gpt: { enabled: true, user: "work-codex", modelAliases: ["daily-gpt"] },
         gatewayKey: "fake-test-key",
         revision: expect.any(String),
       },

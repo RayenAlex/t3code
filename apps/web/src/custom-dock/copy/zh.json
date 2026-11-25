@@ -115,6 +115,7 @@
   "summaryFiles": "已改 {count} 个文件",
   "summaryTools": "{count} 次工具调用",
   "geminiQuota": "Gemini 额度",
+  "gptQuota": "GPT 剩余额度",
   "glmQuota": "GLM 剩余额度",
   "glmQuotaAccount": "Magpie · 已配置账号",
   "glmQuotaWeekly": "7 天额度",

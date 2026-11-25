@@ -59,14 +59,31 @@ export function isMagpieGlmDriver(driver: string): boolean {
 
 const GLM_MODEL_PATTERN = /(?:^|[-_/\s])glm(?=[-_.0-9\s]|$)/i;
 
-export function isGlmModel(
+export type MagpieQuotaFamily = "glm" | "gpt";
+
+const GPT_MODEL_PATTERN = /(?:^|[-_/\s])gpt(?=[-_.0-9\s]|$)/i;
+
+export function magpieQuotaFamily(
   model: string,
-  aliases: readonly string[] = [],
-  modelName?: string,
-): boolean {
-  return (
-    GLM_MODEL_PATTERN.test(model) ||
-    (modelName !== undefined && GLM_MODEL_PATTERN.test(modelName)) ||
-    aliases.includes(model)
-  );
+  modelName: string | undefined,
+  glmAliases: readonly string[] | undefined,
+  gptAliases: readonly string[] | undefined,
+): MagpieQuotaFamily | undefined {
+  if (
+    glmAliases &&
+    (GLM_MODEL_PATTERN.test(model) ||
+      (modelName !== undefined && GLM_MODEL_PATTERN.test(modelName)) ||
+      glmAliases.includes(model))
+  ) {
+    return "glm";
+  }
+  if (
+    gptAliases &&
+    (GPT_MODEL_PATTERN.test(model) ||
+      (modelName !== undefined && GPT_MODEL_PATTERN.test(modelName)) ||
+      gptAliases.includes(model))
+  ) {
+    return "gpt";
+  }
+  return undefined;
 }

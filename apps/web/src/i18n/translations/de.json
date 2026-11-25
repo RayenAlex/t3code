@@ -12800,7 +12800,6 @@
   "33d18dda74f6d7b3": "Auto-Merge für Stack abbrechen",
   "012c67c7f1a99e33": "Auto-Merge für Stack",
   "e7bd85d8b3874962": "Schlüssel gespeichert",
-  "ab219f23fc6c9dca": "Zeigt das zwischengespeicherte GLM-Kontingent für Claude Code und Codex an, wenn sie dieses Gateway verwenden. Das Speichern ändert das Modellrouting nicht.",
   "37a190f7a614890d": "GLM-Kontingent anzeigen",
   "586ed97939f2d9c4": "Magpie-Gateway-URL",
   "8118d18df10f9f95": "Magpie-Kontingentanbieter",
@@ -12810,5 +12809,10 @@
   "e24e5591c72f196f": "Magpie-Gateway-Schlüssel (falls erforderlich)",
   "e0f012688b7a3eb3": "Gespeicherten Schlüssel löschen",
   "a430af90722b0830": "Magpie-Einstellungen speichern",
-  "a962584b1f3fda1d": "Magpie GLM"
+  "1172ed54977ca854": "Magpie-Kontingent",
+  "e76cd3a269d01fc2": "Zeigt das in Magpie zwischengespeicherte GLM- oder GPT-Kontingent. Das Speichern ändert das Modellrouting nicht.",
+  "50da9833accd7700": "GPT-Kontingent anzeigen",
+  "ed504552e0620810": "Das GPT-Kontingent wird für Instanzen angezeigt, die mit diesem Gateway verbunden sind. Lass den Kontonamen nur leer, wenn Magpie ein einziges Codex-Abonnement hat.",
+  "cecd8437a8dc565f": "Codex-Kontoname (optional)",
+  "25abe03e3a72e677": "GPT-Modellaliasnamen (durch Kommas getrennt)"
 }

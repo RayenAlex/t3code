@@ -1623,6 +1623,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         user: "",
         kind: "plan" as const,
         modelAliases: ["gateway/glm-alias"],
+        gpt: { enabled: true, user: "work-codex", modelAliases: ["gateway/gpt-alias"] },
         gatewayKey: "fake-magpie-key",
         revision: "first",
       };

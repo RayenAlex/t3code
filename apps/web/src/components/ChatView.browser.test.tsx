@@ -173,7 +173,7 @@ it("applies saved Magpie settings to the open chat rail without reconnecting", a
     gatewayKey: "",
     revision: "first",
   };
-  const save = (magpieGlmQuota: typeof saved) =>
+  const save = (magpieGlmQuota: NonNullable<typeof DEFAULT_SERVER_SETTINGS.magpieGlmQuota>) =>
     emitEnvironmentSettings({ ...DEFAULT_SERVER_SETTINGS, magpieGlmQuota });
   using _quota = answerRpc(WS_METHODS.serverReadMagpieGlmQuota, (input: typeof glm) => {
     reads(input);
@@ -210,6 +210,7 @@ it("applies saved Magpie settings to the open chat rail without reconnecting", a
     router: false,
   });
   const card = screen.getByRole("region", { name: "GLM quota" });
+  const gptCard = screen.getByRole("region", { name: "GPT quota" });
   await expect.element(page.getByTestId("composer-editor")).toBeVisible();
   await vi.waitFor(() =>
     expect(document.querySelector('[data-thread-details-panel="inline"]')).not.toBeNull(),
@@ -227,9 +228,15 @@ it("applies saved Magpie settings to the open chat rail without reconnecting", a
   await act(() =>
     useComposerDraftStore.getState().setModelSelection(threadRef, other, { explicit: true }),
   );
-  await act(() => save({ ...saved, revision: "fourth" }));
+  const gpt = { enabled: true, user: "", modelAliases: [] };
+  await act(() => save({ ...saved, gpt, revision: "fourth" }));
   await expect.element(card).not.toBeInTheDocument();
+  await expect.element(gptCard).not.toBeInTheDocument();
   expect(reads).toHaveBeenCalledTimes(2);
+  await act(() => save({ ...saved, url: localProxy, gpt, revision: "fifth" }));
+  await expect.element(gptCard.getByText("77% left")).toBeVisible();
+  expect(reads).toHaveBeenCalledTimes(3);
+  expect(reads).toHaveBeenLastCalledWith(other);
 });
 
 it("opens a linked Linear issue from an inactive thread's sidebar badge", async () => {

@@ -2,9 +2,10 @@ import { useAtomValue } from "@effect/atom-react";
 import { toServerClock } from "@t3tools/client-runtime/clock";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
 import {
-  isGlmModel,
   isMagpieGlmDriver,
   magpieGatewayOrigin,
+  magpieQuotaFamily,
+  type MagpieQuotaFamily,
   type EnvironmentId,
   type MagpieGlmQuota,
   type MagpieGlmQuotaBinding,
@@ -26,7 +27,7 @@ import { QuotaProgressRow } from "./RightRailGeminiQuotaCard";
 import { composerQuotaSelections } from "./composerQuotaSelection";
 import { useDockCopy } from "./panelContext";
 
-const GLM_QUOTA_ACCENT = "#5468db";
+const MAGPIE_QUOTA_ACCENT = "#5468db";
 
 type QuotaRead = (
   target: { readonly environmentId: EnvironmentId; readonly input: MagpieGlmQuotaInput },
@@ -49,21 +50,30 @@ export function RightRailGlmQuotaSlot({ scope }: { readonly scope: ScopedThreadR
   const provider = config?.providers.find(
     (provider) => provider.enabled && provider.instanceId === model.instanceId,
   );
-  const origin = saved?.enabled ? magpieGatewayOrigin(saved.url) : undefined;
+  const origin = saved && magpieGatewayOrigin(saved.url);
+  const gateway =
+    origin && provider && isMagpieGlmDriver(provider.driver)
+      ? { instanceId: model.instanceId, origin }
+      : undefined;
   const binding = saved
-    ? origin && provider && isMagpieGlmDriver(provider.driver)
-      ? { instanceId: model.instanceId, origin, modelAliases: saved.modelAliases }
+    ? saved.enabled && gateway
+      ? { ...gateway, modelAliases: saved.modelAliases }
       : undefined
     : config?.magpieGlmQuota && config.magpieGlmQuota.origin === provider?.auth.endpoint
       ? config.magpieGlmQuota
       : undefined;
-  if (!binding) return null;
+  const gptBinding =
+    saved?.gpt?.enabled && gateway && provider?.auth.endpoint === gateway.origin
+      ? { ...gateway, modelAliases: saved.gpt.modelAliases }
+      : undefined;
+  if (!binding && !gptBinding) return null;
   const modelName = provider?.models.find((entry) => entry.slug === model.model)?.name;
   return (
     <LiveGlmQuotaSelection
       key={saved?.revision}
       environmentId={scope.environmentId}
       binding={binding}
+      gptBinding={gptBinding}
       model={model}
       modelName={modelName}
       read={read}
@@ -73,7 +83,8 @@ export function RightRailGlmQuotaSlot({ scope }: { readonly scope: ScopedThreadR
 
 type GlmQuotaSelectionProps = {
   readonly environmentId: EnvironmentId;
-  readonly binding: MagpieGlmQuotaBinding;
+  readonly binding: MagpieGlmQuotaBinding | undefined;
+  readonly gptBinding?: MagpieGlmQuotaBinding | undefined;
   readonly model: MagpieGlmQuotaInput | undefined;
   readonly modelName?: string | undefined;
   readonly read: QuotaRead;
@@ -88,19 +99,24 @@ function LiveGlmQuotaSelection(props: GlmQuotaSelectionProps) {
 export function GlmQuotaSelection({
   environmentId,
   binding,
+  gptBinding,
   model,
   modelName,
   read,
   now,
 }: GlmQuotaSelectionProps & { readonly now: number }) {
-  if (
-    model?.instanceId !== binding.instanceId ||
-    !isGlmModel(model.model, binding.modelAliases, modelName)
-  )
-    return null;
+  if (!model) return null;
+  const family = magpieQuotaFamily(
+    model.model,
+    modelName,
+    binding?.instanceId === model.instanceId ? binding.modelAliases : undefined,
+    gptBinding?.instanceId === model.instanceId ? gptBinding.modelAliases : undefined,
+  );
+  if (!family) return null;
   return (
-    <GlmQuotaReading
-      key={JSON.stringify([environmentId, model.instanceId, model.model])}
+    <MagpieQuotaReading
+      key={JSON.stringify([environmentId, model.instanceId, model.model, family])}
+      family={family}
       environmentId={environmentId}
       input={model}
       read={read}
@@ -109,12 +125,14 @@ export function GlmQuotaSelection({
   );
 }
 
-function GlmQuotaReading({
+function MagpieQuotaReading({
+  family,
   environmentId,
   input,
   read,
   now,
 }: {
+  readonly family: MagpieQuotaFamily;
   readonly environmentId: EnvironmentId;
   readonly input: MagpieGlmQuotaInput;
   readonly read: QuotaRead;
@@ -141,20 +159,28 @@ function GlmQuotaReading({
   }, [attempt, environmentId, instanceId, model, read]);
   const quota = sample?.attempt === attempt ? sample.quota : undefined;
   return (
-    <GlmQuotaCard quota={quota} now={now} readAgain={() => setAttempt((value) => value + 1)} />
+    <MagpieQuotaCard
+      family={family}
+      quota={quota}
+      now={now}
+      readAgain={() => setAttempt((value) => value + 1)}
+    />
   );
 }
 
-function GlmQuotaCard({
+function MagpieQuotaCard({
+  family,
   quota,
   now,
   readAgain,
 }: {
+  readonly family: MagpieQuotaFamily;
   readonly quota: MagpieGlmQuota | undefined;
   readonly now: number;
   readonly readAgain: () => void;
 }) {
   const copy = useDockCopy();
+  const title = family === "gpt" ? copy.gptQuota : copy.glmQuota;
   const windows =
     quota?.status === "ready" && Date.parse(quota.expiresAt) > now
       ? quota.windows.filter((window) => Date.parse(window.resetsAt ?? "") > now)
@@ -173,14 +199,14 @@ function GlmQuotaCard({
   return (
     <TooltipProvider>
       <section
-        aria-label={copy.glmQuota}
+        aria-label={title}
         aria-busy={quota === undefined}
         className="dropdown-glass pointer-events-auto shrink-0 overflow-hidden rounded-2xl border border-border/75 bg-card/95 text-card-foreground shadow-sm"
       >
         <header className="flex items-center justify-between gap-2 border-b border-border/65 px-3 py-2">
           <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold">
             <Gauge className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <span className="truncate">{copy.glmQuota}</span>
+            <span className="truncate">{title}</span>
           </span>
           <Button
             variant="ghost"
@@ -202,7 +228,7 @@ function GlmQuotaCard({
                   key={window.id}
                   label={window.kind === "session" ? copy.quotaFiveHour : copy.glmQuotaWeekly}
                   windowState={toQuotaWindowState(window, now)}
-                  accentColor={GLM_QUOTA_ACCENT}
+                  accentColor={MAGPIE_QUOTA_ACCENT}
                   now={now}
                 />
               ))}

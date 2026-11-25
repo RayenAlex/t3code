@@ -115,6 +115,7 @@
   "summaryFiles": "{count} files changed",
   "summaryTools": "{count} tool calls",
   "geminiQuota": "Gemini quota",
+  "gptQuota": "GPT quota",
   "glmQuota": "GLM quota",
   "glmQuotaAccount": "Magpie · Configured account",
   "glmQuotaWeekly": "7-day",
