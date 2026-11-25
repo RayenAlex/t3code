@@ -24,6 +24,7 @@ import {
 } from "./keybindings.ts";
 import { EditorId, FileManagerRevealKind, RemoteOpenTarget } from "./editor.ts";
 import { ManagedPolicySummary } from "./managedPolicy.ts";
+import { MagpieGlmQuotaBinding } from "./magpieGlmQuota.ts";
 import { ModelCapabilities, ProviderOptionDescriptor } from "./model.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
@@ -745,6 +746,8 @@ export const ServerConfig = Schema.Struct({
   threadFind: Schema.optionalKey(Schema.Boolean),
   threadFindProgressive: Schema.optionalKey(Schema.Boolean),
   featureFlags: Schema.optionalKey(ServerFeatureFlags),
+  magpieGlmQuota: Schema.optionalKey(MagpieGlmQuotaBinding),
+  magpieGlmQuotaSettings: Schema.optionalKey(Schema.Boolean),
   /** Settings patches may carry `secretProviders`; older servers drop the key without an error. */
   secretProviderSettings: Schema.optionalKey(Schema.Boolean),
   /** Secret settings may point at a secret provider; older servers drop the reference. */

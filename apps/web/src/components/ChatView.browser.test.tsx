@@ -4,6 +4,7 @@ import {
   EnvironmentId,
   IssueTrackerKind,
   ORCHESTRATION_V2_WS_METHODS,
+  ProviderInstanceId,
   RunId,
   ThreadId,
   WS_METHODS,
@@ -11,7 +12,7 @@ import {
   type IssueRef,
   type ThreadIssueLink,
 } from "@t3tools/contracts";
-import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
+import { DEFAULT_CLIENT_SETTINGS, DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts/settings";
 import {
   compileResolvedKeybindingsConfig,
   mergeWithDefaultKeybindings,
@@ -38,12 +39,14 @@ import { getRouter } from "~/router";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { environmentThreadDetails } from "~/state/threads";
 import {
+  CODEX_PROVIDER,
   ENVIRONMENT_ID,
   PROJECT_ID,
   answerAssetUrls,
   answerRpc,
   assistantItem,
   dispatchedCommands,
+  emitEnvironmentSettings,
   emitThreadEvent,
   hasPendingAssetUrl,
   installFakeEnvironment,
@@ -132,6 +135,102 @@ vi.mock(import("~/rpc/requestLatencyState"), async (original) => ({
   ...(await original()),
   trackRpcRequestSent: () => {},
 }));
+
+it("applies saved Magpie settings to the open chat rail without reconnecting", async () => {
+  const style = document.createElement("style");
+  style.textContent = stylesheet;
+  document.head.append(style);
+  using _style = { [Symbol.dispose]: () => style.remove() };
+  await page.viewport(1800, 1080);
+  const instanceId = ProviderInstanceId.make(CODEX_PROVIDER.instanceId);
+  const origin = "http://192.168.100.100:3425";
+  const localProxy = "http://127.0.0.1:15722";
+  const glm = { instanceId, model: "gateway/custom-model" };
+  const other = { instanceId, model: "gpt-5.4" };
+  const thread = threadWithHistory("glm-quota", 1, glm);
+  const threadRef = scopeThreadRef(ENVIRONMENT_ID, thread.id);
+  using _environment = installFakeEnvironment([thread], {
+    acceptCommands: true,
+    providers: [
+      {
+        ...CODEX_PROVIDER,
+        auth: { ...CODEX_PROVIDER.auth, endpoint: localProxy },
+        models: [
+          ...CODEX_PROVIDER.models,
+          { slug: glm.model, name: "Gateway GLM alias", isCustom: false, capabilities: null },
+        ],
+      },
+    ],
+  });
+  const reads = vi.fn();
+  const saved = {
+    enabled: true,
+    url: origin,
+    provider: "zhipu",
+    user: "",
+    kind: "plan" as const,
+    modelAliases: [glm.model],
+    gatewayKey: "",
+    revision: "first",
+  };
+  const save = (magpieGlmQuota: typeof saved) =>
+    emitEnvironmentSettings({ ...DEFAULT_SERVER_SETTINGS, magpieGlmQuota });
+  using _quota = answerRpc(WS_METHODS.serverReadMagpieGlmQuota, (input: typeof glm) => {
+    reads(input);
+    return Effect.succeed({
+      status: "ready",
+      checkedAt: "2026-11-25T11:58:00Z",
+      expiresAt: "2099-01-01T00:00:00Z",
+      windows: [
+        {
+          id: "glm-5h",
+          kind: "session",
+          label: "5 hours",
+          usedPercent: 23,
+          resetsAt: "2099-01-01T00:00:00Z",
+        },
+      ],
+    });
+  });
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+  });
+  useRightPanelStore.getState().setThreadPanelOpen(threadRef, "inline", true);
+  using _panel = {
+    [Symbol.dispose]: () =>
+      useRightPanelStore.getState().setThreadPanelOpen(threadRef, "inline", false),
+  };
+  const router = getRouter(
+    createMemoryHistory({ initialEntries: [`/${ENVIRONMENT_ID}/${thread.id}`] }),
+  );
+  await router.load();
+  await using screen = await render(<AppRoot router={router} />, {
+    // AppRoot brings its own router.
+    router: false,
+  });
+  const card = screen.getByRole("region", { name: "GLM quota" });
+  await expect.element(page.getByTestId("composer-editor")).toBeVisible();
+  await vi.waitFor(() =>
+    expect(document.querySelector('[data-thread-details-panel="inline"]')).not.toBeNull(),
+  );
+  await expect.element(card).not.toBeInTheDocument();
+  expect(reads).not.toHaveBeenCalled();
+  await act(() => save(saved));
+  await vi.waitFor(() => expect(reads).toHaveBeenCalledExactlyOnceWith(glm));
+  await expect.element(card.getByText("77% left")).toBeVisible();
+  await act(() => save({ ...saved, user: "work", revision: "second" }));
+  await vi.waitFor(() => expect(reads).toHaveBeenCalledTimes(2));
+  await act(() => save({ ...saved, enabled: false, revision: "third" }));
+  await expect.element(card).not.toBeInTheDocument();
+  expect(reads).toHaveBeenCalledTimes(2);
+  await act(() =>
+    useComposerDraftStore.getState().setModelSelection(threadRef, other, { explicit: true }),
+  );
+  await act(() => save({ ...saved, revision: "fourth" }));
+  await expect.element(card).not.toBeInTheDocument();
+  expect(reads).toHaveBeenCalledTimes(2);
+});
 
 it("opens a linked Linear issue from an inactive thread's sidebar badge", async () => {
   const style = document.createElement("style");

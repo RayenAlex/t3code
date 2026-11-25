@@ -12798,5 +12798,17 @@
     ")"
   ],
   "33d18dda74f6d7b3": "Cancelar merge automático da pilha",
-  "012c67c7f1a99e33": "Merge automático da pilha"
+  "012c67c7f1a99e33": "Merge automático da pilha",
+  "e7bd85d8b3874962": "Chave salva",
+  "ab219f23fc6c9dca": "Exibe a cota GLM em cache para instâncias do Claude Code e do Codex que usam este gateway. Salvar não altera o roteamento de modelos.",
+  "37a190f7a614890d": "Mostrar cota GLM",
+  "586ed97939f2d9c4": "URL do gateway Magpie",
+  "8118d18df10f9f95": "Provedor da cota Magpie",
+  "29f27605f6492ec7": "Nome da conta Magpie (opcional)",
+  "61728be68d9f1968": "Usar um cartão de assinatura em vez de um cartão de plano",
+  "321768506d0f1a66": "Aliases de modelos GLM (separados por vírgula)",
+  "e24e5591c72f196f": "Chave do gateway Magpie (se necessária)",
+  "e0f012688b7a3eb3": "Limpar chave salva",
+  "a430af90722b0830": "Salvar configurações do Magpie",
+  "a962584b1f3fda1d": "Magpie GLM"
 }

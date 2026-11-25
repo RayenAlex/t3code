@@ -279,6 +279,7 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { Kbd } from "../ui/kbd";
 import { useSoftwareKeyboardOpen } from "../../hooks/useSoftwareKeyboardOpen";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import { publishComposerQuotaSelection } from "../../custom-dock/host/composerQuotaSelection";
 import { usePanelAnimationSettings } from "../../panelAnimations";
 import { readEnvironmentScope, readPreparedConnection } from "../../state/session";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
@@ -379,6 +380,7 @@ export interface ChatComposerProps {
   maxFileAttachmentBytes: number | null;
   routeKind: "server" | "draft";
   routeThreadRef: ScopedThreadRef;
+  publishRightRailQuotaSelection?: boolean;
   draftId: DraftId | null;
   multipleModelSelections: ReadonlyArray<ModelSelection> | null;
   supportsMultipleModels: boolean;
@@ -1144,6 +1146,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const backgroundThread = use(BackgroundThreadContext);
   const hiddenThread = use(HiddenThreadContext);
+  const quotaThreadId = routeThreadRef.threadId;
+  const publishQuota = props.publishRightRailQuotaSelection === true && !hiddenThread;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- sends the effective model to the dock outside the router
+  useLayoutEffect(() => {
+    if (!publishQuota) return;
+    return publishComposerQuotaSelection(
+      { environmentId, threadId: quotaThreadId },
+      { instanceId: selectedInstanceId, model: selectedModel },
+    );
+  }, [environmentId, publishQuota, quotaThreadId, selectedInstanceId, selectedModel]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to keydown, window blur and the desktop paste-as-text event to arm plain-text paste
   useEffect(() => {
     // A background composer listens on its own form, so it never hears the main composer's keys.

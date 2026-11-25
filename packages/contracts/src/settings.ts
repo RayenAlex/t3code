@@ -23,6 +23,7 @@ import {
   TrimmedString,
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
+import { magpieGatewayOrigin } from "./magpieGlmQuota.ts";
 import { UsageModelFilter } from "./usage.ts";
 import { SecretProviderId, SecretProviderSlug } from "./secretReference.ts";
 import { containsSecretReference, SettingsSecretValue } from "./settingsSecretValue.ts";
@@ -948,6 +949,20 @@ export const AntigravitySettings = makeProviderSettingsSchema(
 );
 export type AntigravitySettings = typeof AntigravitySettings.Type;
 
+export const MagpieGlmQuotaSettings = Schema.Struct({
+  url: TrimmedNonEmptyString.check(
+    Schema.makeFilter((url) => magpieGatewayOrigin(url) !== undefined),
+  ),
+  provider: TrimmedNonEmptyString,
+  enabled: Schema.Boolean,
+  user: TrimmedString,
+  kind: Schema.Literals(["plan", "subscription"]),
+  modelAliases: Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
+  gatewayKey: Schema.String.pipe(secretSetting),
+  revision: TrimmedNonEmptyString,
+});
+export type MagpieGlmQuotaSettings = typeof MagpieGlmQuotaSettings.Type;
+
 export const UsageLimitSourceConfig = Schema.Struct({
   kind: Schema.Literal("cliproxy"),
   label: Schema.optional(TrimmedNonEmptyString),
@@ -1610,6 +1625,9 @@ export const ServerSettings = Schema.Struct({
   usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  magpieGlmQuota: ForwardCompatibleNullable(MagpieGlmQuotaSettings).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   textGenerators: Schema.Record(ProviderInstanceId, TextGeneratorConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -2004,6 +2022,7 @@ export const ServerSettingsPatch = Schema.Struct({
   usageLimitSources: Schema.optionalKey(
     Schema.Record(UsageLimitSourceId, Schema.NullOr(UsageLimitSourceConfig)),
   ),
+  magpieGlmQuota: Schema.optionalKey(Schema.NullOr(MagpieGlmQuotaSettings)),
   // Merge per entry like usageLimitSources; null removes an entry.
   textGenerators: Schema.optionalKey(
     Schema.Record(ProviderInstanceId, Schema.NullOr(TextGeneratorConfig)),
@@ -2054,6 +2073,7 @@ export function requiredScopesForServerSettingsPatch(
       key === "providers" ||
       key === "providerInstances" ||
       key === "usageLimitSources" ||
+      key === "magpieGlmQuota" ||
       key === "textGenerators" ||
       key === "secretProviders"
     ) {

@@ -156,6 +156,7 @@ import * as TerminalManager from "./terminal/Manager.ts";
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
+import * as MagpieGlmQuota from "./usage/MagpieGlmQuota.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
@@ -993,6 +994,7 @@ it.live.each([
         }),
         ProviderInstallationGate.layer,
         FetchHttpClient.layer,
+        Layer.mock(MagpieGlmQuota.MagpieGlmQuota)({ binding: undefined }),
       );
       const context = yield* Layer.build(
         HttpRouter.serve(Ws.layer, { disableListenLog: true }).pipe(
@@ -1148,6 +1150,12 @@ it.effect.each([
           subscribeChanges: settingsChanges,
         }),
       );
+      const magpieBinding = {
+        instanceId: ProviderInstanceId.make("magpie"),
+        origin: "http://127.0.0.1:3425",
+        modelAliases: [],
+      };
+      const canManageProviders = discovery === "cached";
       const server = yield* RpcServer.makeNoSerialization(
         RpcGroup.make(WsSubscribeServerConfigRpc),
         {
@@ -1166,12 +1174,13 @@ it.effect.each([
               sessionId: AuthSessionId.make("config-test"),
               subject: "config-test",
               method: "browser-session-cookie",
-              scopes: [],
+              scopes: canManageProviders ? [AuthProvidersManageScope] : [],
             },
             {},
             yield* ServerBrowser.ServerBrowser,
             () => Effect.void,
             { secretReferences: true },
+            { binding: magpieBinding, read: () => Effect.die("Config must not fetch quota") },
           ).pipe(Layer.provide(configRpcServices)),
         ),
       );
@@ -1192,6 +1201,11 @@ it.effect.each([
       const snapshot = yield* Queue.take(responses);
       assert.equal(snapshot.type, "snapshot");
       if (snapshot.type !== "snapshot") return yield* Effect.die("Missing initial snapshot");
+      assert.isTrue(snapshot.config.magpieGlmQuotaSettings);
+      assert.deepEqual(
+        snapshot.config.magpieGlmQuota,
+        canManageProviders ? magpieBinding : undefined,
+      );
       assert.deepEqual(
         snapshot.config.remoteOpenTargets,
         discovery === "cached" || direct ? targets : [],

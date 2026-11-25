@@ -102,7 +102,10 @@ function pickGeminiWindow(
   );
 }
 
-function toWindowState(window: ServerProviderUsageWindow, now: number): GeminiQuotaWindowState {
+export function toQuotaWindowState(
+  window: ServerProviderUsageWindow,
+  now: number,
+): GeminiQuotaWindowState {
   const remaining = remainingPercent(window);
   const used = Math.round(Math.max(0, Math.min(100, window.usedPercent)));
   return {
@@ -126,8 +129,8 @@ function resolveWindowsFromLimits(
   const fiveHour = pickGeminiWindow(limits.windows, preferredFamily, isFiveHourWindow);
   const weekly = pickGeminiWindow(limits.windows, preferredFamily, isWeeklyWindow);
   return {
-    fiveHour: fiveHour ? toWindowState(fiveHour, now) : null,
-    weekly: weekly ? toWindowState(weekly, now) : null,
+    fiveHour: fiveHour ? toQuotaWindowState(fiveHour, now) : null,
+    weekly: weekly ? toQuotaWindowState(weekly, now) : null,
   };
 }
 
@@ -204,8 +207,8 @@ export function resolveGeminiQuotaCard(input: {
       email,
       accentColor,
       checkedAt: provider.usageLimits?.checkedAt ?? new Date(input.now).toISOString(),
-      fiveHour: fiveHour ? toWindowState(fiveHour, input.now) : null,
-      weekly: weekly ? toWindowState(weekly, input.now) : null,
+      fiveHour: fiveHour ? toQuotaWindowState(fiveHour, input.now) : null,
+      weekly: weekly ? toQuotaWindowState(weekly, input.now) : null,
     };
   }
 

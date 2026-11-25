@@ -137,6 +137,7 @@ import * as ProviderAdapterRegistry from "./orchestration-v2/ProviderAdapterRegi
 import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
 import * as ProviderUsageLimitsIngestion from "./provider/ProviderUsageLimitsIngestion.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
+import * as MagpieGlmQuota from "./usage/MagpieGlmQuota.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "./project/T3ProjectFileLoader.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
@@ -793,7 +794,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(layerVcs),
   Layer.provideMerge(Layer.mergeAll(layerTerminal, layerPreview, layerDevice)),
   Layer.provideMerge(layerPersistence),
-  Layer.provideMerge(Layer.mergeAll(Keybindings.layer, UsageLimitSources.layer)),
+  Layer.provideMerge(
+    Layer.mergeAll(Keybindings.layer, UsageLimitSources.layer, MagpieGlmQuota.layer),
+  ),
   Layer.provideMerge(ProviderRegistry.layer),
   Layer.provideMerge(
     ProviderInstanceRegistryHydration.layer.pipe(Layer.provide(SqlitePersistence.layerConfig)),

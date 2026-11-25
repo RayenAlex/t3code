@@ -10,6 +10,8 @@ import {
   SimlockDeviceHostConfig,
   TextGeneratorConfig,
   UsageLimitSourceConfig,
+  MagpieGlmQuotaSettings,
+  magpieGatewayOrigin,
   isSecretReference,
   secretSettingsFields,
 } from "@t3tools/contracts";
@@ -257,6 +259,13 @@ function mapSecretFieldGroups(
     providerInstances,
     sourceControlHosts,
     usageLimitSources,
+    magpieGlmQuota: settings.magpieGlmQuota
+      ? (mapFields(
+          settings.magpieGlmQuota,
+          secretSettingsFields(MagpieGlmQuotaSettings),
+          () => "magpie-glm-quota-gateway-key",
+        ) as ServerSettings["magpieGlmQuota"])
+      : null,
     textGenerators,
     easDeviceHosts,
     simlockDeviceHosts,
@@ -291,6 +300,22 @@ export function withoutRemovedSecretProviderReferences(
       ]),
     ),
   };
+}
+
+export function withoutRedirectedMagpieKey(
+  current: ServerSettings,
+  next: ServerSettings,
+): ServerSettings {
+  const previous = current.magpieGlmQuota;
+  const config = next.magpieGlmQuota;
+  if (
+    !previous ||
+    !config ||
+    config.gatewayKey !== SECRET_REDACTED ||
+    magpieGatewayOrigin(previous.url) === magpieGatewayOrigin(config.url)
+  )
+    return next;
+  return { ...next, magpieGlmQuota: { ...config, gatewayKey: "" } };
 }
 
 const gatewayOrigin = (url: string) => (URL.canParse(url) ? new URL(url).origin : url);

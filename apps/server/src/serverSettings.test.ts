@@ -1610,6 +1610,51 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
       }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 
+  it.effect("keeps the Magpie key private and never retains it for a different origin", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const store = yield* ServerSecretStore.ServerSecretStore;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const { settingsPath } = yield* ServerConfig.ServerConfig;
+      const saved = {
+        enabled: true,
+        url: "https://magpie.example.test",
+        provider: "zhipu",
+        user: "",
+        kind: "plan" as const,
+        modelAliases: ["gateway/glm-alias"],
+        gatewayKey: "fake-magpie-key",
+        revision: "first",
+      };
+      yield* service.updateSettings({ magpieGlmQuota: saved });
+      assert.deepEqual((yield* service.getSettings).magpieGlmQuota, saved);
+      const disk = yield* fileSystem.readFileString(settingsPath);
+      assert.notInclude(disk, saved.gatewayKey);
+      assert.isTrue(Option.isSome(yield* store.get("magpie-glm-quota-gateway-key")));
+      const client = ServerSettingsModule.redactServerSettingsForClient(
+        yield* service.getSettings,
+        {
+          secretReferences: true,
+        },
+      );
+      assert.deepEqual(client.magpieGlmQuota, { ...saved, gatewayKey: SECRET_REDACTED });
+      yield* service.updateSettings({
+        magpieGlmQuota: { ...saved, gatewayKey: SECRET_REDACTED, user: "work", revision: "second" },
+      });
+      assert.equal((yield* service.getSettings).magpieGlmQuota?.gatewayKey, saved.gatewayKey);
+      yield* service.updateSettings({
+        magpieGlmQuota: {
+          ...saved,
+          url: "https://other.example.test",
+          gatewayKey: SECRET_REDACTED,
+          revision: "third",
+        },
+      });
+      assert.equal((yield* service.getSettings).magpieGlmQuota?.gatewayKey, "");
+      assert.isTrue(Option.isNone(yield* store.get("magpie-glm-quota-gateway-key")));
+    }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
+
   it.effect("moves saved provider credentials to the secret store when settings load", () =>
     Effect.gen(function* () {
       const service = yield* ServerSettingsModule.ServerSettingsService;

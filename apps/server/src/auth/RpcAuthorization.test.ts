@@ -166,6 +166,36 @@ describe("RPC scope middleware", () => {
   );
 });
 
+it.effect(
+  "rejects quota reads without provider-management permission before contacting Magpie",
+  () =>
+    Effect.gen(function* () {
+      const method = WS_METHODS.serverReadMagpieGlmQuota;
+      const group = WsRpcGroup.omit(
+        ...[...WsRpcGroup.requests.keys()].filter(
+          (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof method> => tag !== method,
+        ),
+      );
+      const client = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.merge(
+            group.toLayerHandler(method, () => Effect.die("Quota handler must not run")),
+            RpcAuthorization.layer([AuthOrchestrationReadScope]),
+          ),
+        ),
+      );
+      expect(
+        yield* client[method]({
+          instanceId: ProviderInstanceId.make("magpie"),
+          model: "glm-5",
+        }).pipe(Effect.flip),
+      ).toMatchObject({
+        _tag: "EnvironmentAuthorizationError",
+        requiredPermission: AuthProvidersManageScope,
+      });
+    }),
+);
+
 it.effect("allows issue reads but requires a source-control grant before commenting", () =>
   Effect.gen(function* () {
     const tested = [WS_METHODS.issuesList, WS_METHODS.issuesComment] as const;

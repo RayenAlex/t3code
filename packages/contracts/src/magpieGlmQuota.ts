@@ -1,0 +1,72 @@
+import * as Schema from "effect/Schema";
+
+import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ProviderInstanceId } from "./providerInstance.ts";
+import { ServerProviderUsageWindow } from "./providerUsageLimits.ts";
+
+export const MagpieGlmQuotaBinding = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  origin: TrimmedNonEmptyString,
+  modelAliases: Schema.Array(TrimmedNonEmptyString),
+});
+export type MagpieGlmQuotaBinding = typeof MagpieGlmQuotaBinding.Type;
+
+export const MagpieGlmQuotaInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  model: TrimmedNonEmptyString.check(Schema.isMaxLength(512)),
+});
+export type MagpieGlmQuotaInput = typeof MagpieGlmQuotaInput.Type;
+
+export const MagpieGlmQuota = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("ready"),
+    checkedAt: IsoDateTime,
+    expiresAt: IsoDateTime,
+    windows: Schema.Array(ServerProviderUsageWindow),
+  }),
+  Schema.Struct({
+    status: Schema.Literals([
+      "notConfigured",
+      "notApplicable",
+      "noCard",
+      "ambiguous",
+      "unconfirmed",
+      "unreachable",
+    ]),
+  }),
+]);
+export type MagpieGlmQuota = typeof MagpieGlmQuota.Type;
+
+export function magpieGatewayOrigin(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    return /^https?:$/.test(url.protocol) &&
+      url.pathname === "/" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+      ? url.origin
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function isMagpieGlmDriver(driver: string): boolean {
+  return driver === "claudeAgent" || driver === "codex";
+}
+
+const GLM_MODEL_PATTERN = /(?:^|[-_/\s])glm(?=[-_.0-9\s]|$)/i;
+
+export function isGlmModel(
+  model: string,
+  aliases: readonly string[] = [],
+  modelName?: string,
+): boolean {
+  return (
+    GLM_MODEL_PATTERN.test(model) ||
+    (modelName !== undefined && GLM_MODEL_PATTERN.test(modelName)) ||
+    aliases.includes(model)
+  );
+}

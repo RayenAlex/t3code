@@ -3846,6 +3846,7 @@ export default function ChatView(props: ChatViewProps) {
                             ) : null}
                             {!composerMounted ? null : (
                               <ChatComposer
+                                publishRightRailQuotaSelection={routeKind === "server" && !embedded}
                                 canOperateThread={canOperateThread}
                                 reportedModelSelection={reportedModelSelection}
                                 multipleModelSelections={multipleModelSelections}

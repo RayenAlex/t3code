@@ -28,7 +28,7 @@ function fillToneClass(tone: GeminiQuotaWindowState["tone"]): string {
   return "";
 }
 
-function QuotaProgressRow({
+export function QuotaProgressRow({
   label,
   windowState,
   accentColor,

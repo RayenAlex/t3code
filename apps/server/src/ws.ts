@@ -262,6 +262,7 @@ import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { commandFeatureUsage, featureUsage } from "./telemetry/FeatureUsage.ts";
 import type { TelemetryOwner } from "./telemetry/Identify.ts";
+import * as MagpieGlmQuota from "./usage/MagpieGlmQuota.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as TriageService from "./triage/TriageService.ts";
@@ -1455,6 +1456,7 @@ export const layerWsRpc = (
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
   reportProfiles: ServerBrowser.ProfileReporter,
   settingsClient: { readonly secretReferences: boolean },
+  magpieGlmQuota?: MagpieGlmQuota.MagpieGlmQuota["Service"],
 ) =>
   Layer.effectContext(
     Effect.gen(function* () {
@@ -1940,6 +1942,10 @@ export const layerWsRpc = (
             otlpLogsEnabled: config.otlpLogsUrl !== undefined,
           },
           settings,
+          magpieGlmQuotaSettings: magpieGlmQuota !== undefined,
+          ...(magpieGlmQuota?.binding && currentSession.scopes.includes(AuthProvidersManageScope)
+            ? { magpieGlmQuota: magpieGlmQuota.binding }
+            : {}),
           ...(serverSettings.managedPolicy === undefined
             ? {}
             : { managedPolicy: serverSettings.managedPolicy }),
@@ -2845,6 +2851,8 @@ export const layerWsRpc = (
         [WS_METHODS.serverGetResourceTelemetryHistory]: (input) =>
           resourceTelemetry.readHistory(input),
         [WS_METHODS.serverGetUsageSummary]: (input) => usage.readSummary(input),
+        [WS_METHODS.serverReadMagpieGlmQuota]: (input) =>
+          magpieGlmQuota?.read(input) ?? Effect.succeed({ status: "notConfigured" } as const),
         [WS_METHODS.serverRefreshUsageRates]: (_input) => usage.refreshRates,
         [WS_METHODS.serverRetryResourceTelemetry]: (_input) => resourceTelemetry.retry,
         [WS_METHODS.serverCheckOtlpEndpoint]: (input) => otlpEndpointCheck.check(input),
@@ -3760,6 +3768,7 @@ export const WS_RPC_SERVER_OPTIONS = {
 export const layer = Layer.unwrap(
   Effect.gen(function* () {
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
+    const magpieGlmQuota = yield* MagpieGlmQuota.MagpieGlmQuota;
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
     const npmRelease = yield* NpmRelease.NpmRelease;
@@ -3847,6 +3856,7 @@ export const layer = Layer.unwrap(
               serverBrowser,
               reportProfiles,
               readSettingsClient(url.value),
+              magpieGlmQuota,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Handler-context reporters see only request defects, not server-wide defects.

@@ -104,6 +104,7 @@ import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { useSecretSources } from "./SecretSourceInput";
 import { TextGeneratorsSettings } from "./TextGeneratorsSettings";
 import { UsageProviderSettings } from "./UsageProviderSettings";
+import { MagpieGlmQuotaSettings } from "./MagpieGlmQuotaSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
@@ -593,6 +594,10 @@ export function EnvironmentProviderSettings({
   const supportsProjectProviderOverrides = useAtomValue(
     serverEnvironment.configValueAtom(environmentId),
     (config) => config?.environment.capabilities.projectProviderInstanceOverrides === true,
+  );
+  const supportsMagpieGlmQuota = useAtomValue(
+    serverEnvironment.configValueAtom(environmentId),
+    (config) => config?.magpieGlmQuotaSettings === true,
   );
   const refreshServerProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
@@ -1144,6 +1149,14 @@ export function EnvironmentProviderSettings({
           </div>
         </SettingsGroup>
       </SettingsSection>
+
+      {supportsMagpieGlmQuota ? (
+        <MagpieGlmQuotaSettings
+          environmentId={environmentId}
+          config={settings.magpieGlmQuota}
+          readOnly={readOnly}
+        />
+      ) : null}
 
       <UsageProviderSettings
         key={environmentId}

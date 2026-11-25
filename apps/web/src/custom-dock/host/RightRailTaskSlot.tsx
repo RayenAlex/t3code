@@ -71,7 +71,8 @@ function readGeometry(): RightRailGeometry | null {
 }
 
 function subscribeGeometry(notify: () => void): () => void {
-  let activePanel: HTMLElement | null = null;
+  let activePanel: HTMLElement | undefined | null;
+  let lastNotified: RightRailGeometry | null | undefined;
   let stopResize: (() => void) | null = null;
   const observer = new MutationObserver(() => sync());
 
@@ -95,9 +96,10 @@ function subscribeGeometry(notify: () => void): () => void {
   function sync() {
     const panel = readDetailsPanel();
     rebind(panel);
-    const previous = cachedGeometry;
     const next = readGeometry();
-    if (previous !== next) notify();
+    if (lastNotified === next) return;
+    lastNotified = next;
+    notify();
   }
 
   window.addEventListener("resize", sync);

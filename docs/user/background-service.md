@@ -81,6 +81,26 @@ A missing file is ignored; other read failures stop service startup.
 If the file contains credentials, restrict access to that file with `chmod 600`
 (for the default T3 home, `chmod 600 ~/.t3/service.env`).
 
+### Show GLM quota from a Magpie gateway
+
+In T3 Code, open **Settings → Providers → Magpie GLM** for the environment
+that runs Claude Code or Codex. Enter the Magpie gateway origin (without `/v1`),
+the quota provider (normally `zhipu`), and the account name if the Magpie card
+has one. If Magpie requires authentication, enter its gateway key. Use HTTPS
+for gateways on untrusted networks. The key stays in the T3 Server's secret
+store and is not sent back to the client.
+
+Save to apply the setting immediately. It covers Claude Code and Codex instances
+already using that gateway; it does not change their routing or login. If a GLM
+model is exposed under a different name, enter its exact ID as a model alias.
+The card appears in the open right rail when that model is selected. Re-reading
+shows Magpie's cached quota; it does not refresh the vendor's quota or identify
+which account handled the last message.
+
+An existing `T3CODE_MAGPIE_GLM_QUOTA` server variable still works until you save
+an in-app configuration. Turning off the in-app setting also suppresses that
+fallback.
+
 ## Platform support
 
 Linux needs systemd user services. Setup enables lingering so T3 Code starts at

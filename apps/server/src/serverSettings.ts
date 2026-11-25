@@ -68,6 +68,7 @@ import {
   mapSettingsSecretValues,
   withoutRemovedSecretProviderReferences,
   withoutRedirectedSimlockTokens,
+  withoutRedirectedMagpieKey,
   SECRET_REDACTED,
   type SettingsSecret,
 } from "./settingsSecrets.ts";
@@ -1237,7 +1238,10 @@ const make = Effect.gen(function* () {
         // a removed provider's reference is cleared below rather than restored by persistence.
         const updated = withoutRedirectedSimlockTokens(
           current,
-          withEchoedSecretReferences(current, yield* update(current)),
+          withoutRedirectedMagpieKey(
+            current,
+            withEchoedSecretReferences(current, yield* update(current)),
+          ),
         );
         // Vet before secrets: a variable the policy hides from clients is not one they removed.
         const vetted = managed.vetWrite(current, yield* normalizeServerSettings(updated), patch);

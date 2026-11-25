@@ -12793,5 +12793,17 @@
     ")"
   ],
   "33d18dda74f6d7b3": "Cancelar la fusión automática de la pila",
-  "012c67c7f1a99e33": "Fusión automática de la pila"
+  "012c67c7f1a99e33": "Fusión automática de la pila",
+  "e7bd85d8b3874962": "Clave guardada",
+  "ab219f23fc6c9dca": "Muestra la cuota GLM en caché para las instancias de Claude Code y Codex que usan esta puerta de enlace. Guardar no cambia el enrutamiento de modelos.",
+  "37a190f7a614890d": "Mostrar cuota GLM",
+  "586ed97939f2d9c4": "URL de la puerta de enlace de Magpie",
+  "8118d18df10f9f95": "Proveedor de cuota de Magpie",
+  "29f27605f6492ec7": "Nombre de cuenta de Magpie (opcional)",
+  "61728be68d9f1968": "Usar una tarjeta de suscripción en lugar de una tarjeta de plan",
+  "321768506d0f1a66": "Alias de modelos GLM (separados por comas)",
+  "e24e5591c72f196f": "Clave de la puerta de enlace de Magpie (si se requiere)",
+  "e0f012688b7a3eb3": "Borrar clave guardada",
+  "a430af90722b0830": "Guardar configuración de Magpie",
+  "a962584b1f3fda1d": "Magpie GLM"
 }

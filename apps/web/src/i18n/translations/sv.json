@@ -12805,5 +12805,17 @@
     ")"
   ],
   "33d18dda74f6d7b3": "Avbryt automatisk merge för stacken",
-  "012c67c7f1a99e33": "Merga stacken automatiskt"
+  "012c67c7f1a99e33": "Merga stacken automatiskt",
+  "e7bd85d8b3874962": "Nyckeln har sparats",
+  "ab219f23fc6c9dca": "Visar cachad GLM-kvot för Claude Code- och Codex-instanser som använder denna gateway. När du sparar ändras inte modellernas routning.",
+  "37a190f7a614890d": "Visa GLM-kvot",
+  "586ed97939f2d9c4": "Magpie-gatewayens URL",
+  "8118d18df10f9f95": "Kvotleverantör i Magpie",
+  "29f27605f6492ec7": "Magpie-kontonamn (valfritt)",
+  "61728be68d9f1968": "Använd ett prenumerationskort i stället för ett plankort",
+  "321768506d0f1a66": "GLM-modellalias (kommaseparerade)",
+  "e24e5591c72f196f": "Magpie-gatewaynyckel (om den krävs)",
+  "e0f012688b7a3eb3": "Rensa sparad nyckel",
+  "a430af90722b0830": "Spara Magpie-inställningar",
+  "a962584b1f3fda1d": "Magpie GLM"
 }
