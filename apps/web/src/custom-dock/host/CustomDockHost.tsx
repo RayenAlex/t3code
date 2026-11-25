@@ -251,7 +251,7 @@ function DockDrawer({
     <aside
       id={DRAWER}
       aria-label={copy.dock}
-      className="fixed top-0 right-0 z-50 flex max-w-full flex-col border-l border-border bg-card text-card-foreground shadow-2xl"
+      className="fixed top-0 right-0 z-50 flex max-w-full flex-col border-l border-border bg-card text-card-foreground shadow-2xl wco:top-(--workspace-topbar-height)"
       style={{ width, bottom }}
     >
       <ResizeHandle width={width} />
