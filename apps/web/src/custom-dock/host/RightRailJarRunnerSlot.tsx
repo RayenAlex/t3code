@@ -5,9 +5,14 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { AuthTerminalReadScope, type ScopedThreadRef } from "@t3tools/contracts";
+import {
+  AuthTerminalReadScope,
+  type EnvironmentId,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 import { projectScriptCwd } from "@t3tools/shared/projectScripts";
 import { nextTerminalId } from "@t3tools/shared/terminalLabels";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { useState } from "react";
 
 import { closingTerminalIds } from "../../components/terminal/closingTerminals";
@@ -30,32 +35,68 @@ import {
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
 import {
   buildJarRunnerShellCommand,
+  buildNpmShellCommand,
   EMPTY_MODULE_CONFIG,
   extractProfilesByModule,
+  extractTopLevelPackageJsonDirs,
   extractTopLevelPomPaths,
+  isJarModule,
+  isProxyTargetValid,
   loadProjectJarRunnerConfigs,
+  NPM_DEV_SCRIPT,
+  npmRunnerCommand,
+  parseNpmRunnerScripts,
   resolveJarRunnerModules,
   resolveModuleCwd,
+  resolveNpmRunnerProjects,
   saveProjectJarRunnerConfigs,
   validateJarRunnerModuleConfig,
   type JarRunnerCommand,
   type JarRunnerModule,
-  type JarRunnerModuleConfig,
+  type RunnerCommand,
+  type RunnerModule,
+  type RunnerModuleConfig,
 } from "./jarRunnerModules";
 import { useDockCopy } from "./panelContext";
 import {
   RightRailJarRunnerCard,
-  type JarRunnerModuleRun,
-  type JarRunnerModuleView,
+  type RunnerModuleRun,
+  type RunnerModuleView,
 } from "./RightRailJarRunnerCard";
 
 const RUNNER_TERMINAL_COLS = 120;
 const RUNNER_TERMINAL_ROWS = 30;
 const POM_SEARCH_LIMIT = 50;
 const PROFILE_SEARCH_LIMIT = 100;
+const PACKAGE_JSON_SEARCH_LIMIT = 200;
+
+const readPackageJson = (environmentId: EnvironmentId, cwd: string) =>
+  projectEnvironment.readFile({
+    environmentId,
+    input: { cwd, relativePath: "package.json", allowMissing: true },
+  });
+
+const packageJsonContents = Atom.family((key: string) => {
+  const [environmentId, rootCwd, relativeDirs] = JSON.parse(key) as [
+    EnvironmentId,
+    string,
+    ReadonlyArray<string>,
+  ];
+  const reads = relativeDirs.map((relativeDir) =>
+    readPackageJson(environmentId, resolveModuleCwd(rootCwd, relativeDir)),
+  );
+  return Atom.make((get) => reads.map((read) => get(read))).pipe(
+    Atom.setIdleTTL(0),
+    Atom.withLabel(`web:custom-dock:package-json:${key}`),
+  );
+});
+
+const EMPTY_PACKAGE_JSON_READS = Atom.make<
+  ReadonlyArray<Atom.Type<ReturnType<typeof readPackageJson>>>
+>([]).pipe(Atom.withLabel("web:custom-dock:package-json:empty"));
 
 interface ModuleRunRecord {
-  readonly command: JarRunnerCommand;
+  readonly command: RunnerCommand;
   readonly terminalId: string;
 }
 
@@ -67,7 +108,16 @@ interface RunnerScopeState {
 
 interface ConfigScopeState {
   readonly projectKey: string;
-  readonly configsByModuleId: Readonly<Record<string, JarRunnerModuleConfig>>;
+  readonly configsByModuleId: Readonly<Record<string, RunnerModuleConfig>>;
+}
+
+interface RunnerCommandActions {
+  /** Names the command in failure messages, such as `mvn-op` or `npm run dev`. */
+  readonly label: string;
+  /** Null when the command ignores module settings. */
+  readonly invalidConfigMessage: string | null;
+  readonly isConfigValid: (config: RunnerModuleConfig) => boolean;
+  readonly buildShellCommand: (config: RunnerModuleConfig) => string;
 }
 
 const EMPTY_RUNS: Readonly<Record<string, ModuleRunRecord>> = {};
@@ -155,6 +205,30 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
     m,
   );
 
+  const packageJsonSearchResult = useEnvironmentQuery(
+    fileAccess.canReadFiles && rootCwd !== null
+      ? projectEnvironment.searchEntries({
+          environmentId: scope.environmentId,
+          input: {
+            cwd: rootCwd,
+            query: "package.json",
+            kind: "file",
+            limit: PACKAGE_JSON_SEARCH_LIMIT,
+          },
+        })
+      : null,
+    m,
+  );
+  const packageJsonDirs = extractTopLevelPackageJsonDirs(
+    packageJsonSearchResult.data?.entries ?? [],
+  );
+
+  const packageJsonReads = useAtomValue(
+    fileAccess.canReadFiles && rootCwd !== null && packageJsonDirs.length > 0
+      ? packageJsonContents(JSON.stringify([scope.environmentId, rootCwd, packageJsonDirs]))
+      : EMPTY_PACKAGE_JSON_READS,
+  );
+
   const scopeKey = `${scope.environmentId}:${scope.threadId}:${rootCwd ?? ""}`;
   const projectConfigKey = `${scope.environmentId}:${project?.workspaceRoot ?? ""}`;
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -168,7 +242,24 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
     configsByModuleId: loadProjectJarRunnerConfigs(projectConfigKey),
   }));
 
-  if (!canOpen || !canWrite || !project || rootCwd === null || topLevelPomPaths.length === 0) {
+  const scriptsByDir: Record<string, ReadonlyArray<string>> = {};
+  packageJsonReads.forEach((result, index) => {
+    const relativeDir = packageJsonDirs[index];
+    const read = relativeDir === undefined ? null : AsyncResult.getOrElse(result, () => null);
+    if (relativeDir === undefined || read === null) return;
+    scriptsByDir[relativeDir] = parseNpmRunnerScripts(read.contents);
+  });
+
+  if (!canOpen || !canWrite || !project || rootCwd === null) {
+    return null;
+  }
+
+  const npmProjects = resolveNpmRunnerProjects({
+    projectName: project.title,
+    packageJsonDirs,
+    scriptsByDir,
+  });
+  if (topLevelPomPaths.length === 0 && npmProjects.length === 0) {
     return null;
   }
 
@@ -185,15 +276,18 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
       .filter((matchPath) => matchPath === "pom.xml" || matchPath.endsWith("/pom.xml")),
   );
 
-  const modules = resolveJarRunnerModules({
-    projectName: project.title,
-    pomPaths: topLevelPomPaths,
-    springBootPomPaths: springBootPomPaths.size > 0 ? springBootPomPaths : null,
-  });
+  const modules: ReadonlyArray<RunnerModule> = [
+    ...resolveJarRunnerModules({
+      projectName: project.title,
+      pomPaths: topLevelPomPaths,
+      springBootPomPaths: springBootPomPaths.size > 0 ? springBootPomPaths : null,
+    }),
+    ...npmProjects,
+  ];
 
   const profilesByModule = extractProfilesByModule(
     profileSearchResult.data?.entries ?? [],
-    modules.map((module) => module.relativeDir),
+    modules.flatMap((module) => (isJarModule(module) ? [module.relativeDir] : [])),
   );
 
   const panelTerminalIds = new Set(
@@ -207,9 +301,9 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
   ]);
   const closingIds = new Set(closingTerminalIds(scope));
 
-  const moduleViews: ReadonlyArray<JarRunnerModuleView> = modules.map((module) => {
+  const moduleViews: ReadonlyArray<RunnerModuleView> = modules.map((module) => {
     const saved = currentRuns[module.id];
-    const run: JarRunnerModuleRun | null =
+    const run: RunnerModuleRun | null =
       saved && (knownSessions === null || knownIds.has(saved.terminalId))
         ? {
             command: saved.command,
@@ -244,8 +338,8 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
     }));
   }
 
-  function updateModuleConfig(moduleId: string, nextConfig: JarRunnerModuleConfig) {
-    const nextMap: Record<string, JarRunnerModuleConfig> = {
+  function updateModuleConfig(moduleId: string, nextConfig: RunnerModuleConfig) {
+    const nextMap: Record<string, RunnerModuleConfig> = {
       ...currentConfigs,
       [moduleId]: nextConfig,
     };
@@ -254,6 +348,28 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
       projectKey: projectConfigKey,
       configsByModuleId: nextMap,
     });
+  }
+
+  function jarCommandActions(
+    module: JarRunnerModule,
+    command: JarRunnerCommand,
+  ): RunnerCommandActions {
+    return {
+      label: command,
+      invalidConfigMessage: command === "mvn-p" ? null : copy.jarInvalidConfig,
+      isConfigValid: (config) => validateJarRunnerModuleConfig(config).isValid,
+      buildShellCommand: (config) =>
+        buildJarRunnerShellCommand(command, module, copy.jarMissingBuiltJar, config),
+    };
+  }
+
+  function npmScriptActions(script: string): RunnerCommandActions {
+    return {
+      label: buildNpmShellCommand(script),
+      invalidConfigMessage: script === NPM_DEV_SCRIPT ? copy.npmInvalidProxyTarget : null,
+      isConfigValid: (config) => isProxyTargetValid(config.proxyTarget),
+      buildShellCommand: (config) => buildNpmShellCommand(script, config),
+    };
   }
 
   function pickModuleTerminalId(
@@ -285,23 +401,19 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
   }
 
   async function launchModuleCommand(
-    module: JarRunnerModule,
-    command: JarRunnerCommand,
+    module: RunnerModule,
+    command: RunnerCommand,
+    actions: RunnerCommandActions,
     reservedIds: Set<string>,
     focusAfterOpen: boolean,
   ): Promise<string | null> {
     if (rootCwd === null) return null;
     const config = currentConfigs[module.id] ?? EMPTY_MODULE_CONFIG;
-    if (command !== "mvn-p" && !validateJarRunnerModuleConfig(config).isValid) {
-      return copy.jarInvalidConfig;
+    if (actions.invalidConfigMessage !== null && !actions.isConfigValid(config)) {
+      return actions.invalidConfigMessage;
     }
 
-    const shellCommand = buildJarRunnerShellCommand(
-      command,
-      module,
-      copy.jarMissingBuiltJar,
-      config,
-    );
+    const shellCommand = actions.buildShellCommand(config);
     const moduleCwd = resolveModuleCwd(rootCwd, module.relativeDir);
     const { terminalId, reused } = pickModuleTerminalId(module.id, reservedIds);
 
@@ -313,7 +425,7 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
       location: { cwd: moduleCwd, worktreePath },
     });
     if (!launched) {
-      return copy.jarRunFailed.replace("{command}", `${module.name}: ${command}`);
+      return copy.jarRunFailed.replace("{command}", `${module.name}: ${actions.label}`);
     }
 
     if (focusAfterOpen) {
@@ -326,7 +438,7 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
       const failure = squashAtomCommandFailure(openResult);
       return (
         thrownErrorMessage(failure, m) ??
-        copy.jarRunFailed.replace("{command}", `${module.name}: ${command}`)
+        copy.jarRunFailed.replace("{command}", `${module.name}: ${actions.label}`)
       );
     }
 
@@ -340,7 +452,7 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
       const failure = squashAtomCommandFailure(writeResult);
       return (
         thrownErrorMessage(failure, m) ??
-        copy.jarRunFailed.replace("{command}", `${module.name}: ${command}`)
+        copy.jarRunFailed.replace("{command}", `${module.name}: ${actions.label}`)
       );
     }
 
@@ -348,12 +460,21 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
     return null;
   }
 
-  async function runSingleModule(module: JarRunnerModule, command: JarRunnerCommand) {
+  async function runModuleCommand(
+    module: RunnerModule,
+    command: RunnerCommand,
+    actions: RunnerCommandActions,
+  ) {
     if (busyKey !== null) return;
     setBusyKey(`${module.id}:${command}`);
     setScopeError(null);
-    const reservedIds = new Set<string>();
-    const failureMessage = await launchModuleCommand(module, command, reservedIds, true);
+    const failureMessage = await launchModuleCommand(
+      module,
+      command,
+      actions,
+      new Set<string>(),
+      true,
+    );
     setBusyKey(null);
     if (failureMessage !== null) {
       setScopeError(failureMessage);
@@ -362,7 +483,9 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
 
   async function runAllModules(command: "mvn-op" | "jar") {
     if (busyKey !== null) return;
-    const targets = moduleViews.filter((item) => !item.run?.running).map((item) => item.module);
+    const targets = moduleViews.flatMap((item) =>
+      isJarModule(item.module) && !item.run?.running ? [item.module] : [],
+    );
     if (targets.length === 0) return;
 
     setBusyKey(`all:${command}`);
@@ -370,7 +493,13 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
     const reservedIds = new Set<string>();
     const results = await Promise.all(
       targets.map((module, index) =>
-        launchModuleCommand(module, command, reservedIds, index === 0),
+        launchModuleCommand(
+          module,
+          command,
+          jarCommandActions(module, command),
+          reservedIds,
+          index === 0,
+        ),
       ),
     );
     setBusyKey(null);
@@ -412,7 +541,12 @@ export function RightRailJarRunnerSlot({ scope }: { readonly scope: ScopedThread
       busyKey={busyKey}
       modules={moduleViews}
       error={currentError}
-      onRun={(module, command) => void runSingleModule(module, command)}
+      onRun={(module, command) =>
+        void runModuleCommand(module, command, jarCommandActions(module, command))
+      }
+      onRunNpm={(project, script) =>
+        void runModuleCommand(project, npmRunnerCommand(script), npmScriptActions(script))
+      }
       onRunAll={(command) => void runAllModules(command)}
       onOpenTerminal={openModuleTerminal}
       onStop={(moduleId, terminalId) => void stopModuleRun(moduleId, terminalId)}

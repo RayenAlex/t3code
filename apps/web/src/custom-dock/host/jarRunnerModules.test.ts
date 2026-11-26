@@ -3,10 +3,22 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildJarRunnerShellCommand,
   buildMvnOpCommand,
+  buildNpmShellCommand,
+  EMPTY_MODULE_CONFIG,
   extractProfilesByModule,
+  extractTopLevelPackageJsonDirs,
   extractTopLevelPomPaths,
+  formatProxyTargetBadge,
+  isJarModule,
+  isNpmRunnerCommand,
+  isProxyTargetValid,
+  npmRunnerCommand,
+  npmRunnerScript,
+  parseNpmRunnerScripts,
   resolveJarRunnerModules,
   resolveModuleCwd,
+  resolveNpmRunnerProjects,
+  resolveProxyTarget,
   validateJarRunnerModuleConfig,
 } from "./jarRunnerModules";
 
@@ -47,6 +59,21 @@ describe("jarRunnerModules", () => {
     });
   });
 
+  it("extracts only root and direct child package.json files", () => {
+    expect(
+      extractTopLevelPackageJsonDirs([
+        { path: "web/package.json", kind: "file" },
+        { path: "package.json", kind: "file" },
+        { path: "gznqi-websocket/package.json", kind: "file" },
+        { path: "web/package-lock.json", kind: "file" },
+        { path: "web/public/lib/package.json", kind: "file" },
+        { path: "web/node_modules/vue/package.json", kind: "file", ignored: true },
+        { path: "web", kind: "directory" },
+        { path: "web/package.json", kind: "file" },
+      ]),
+    ).toEqual(["web", "", "gznqi-websocket"]);
+  });
+
   it("prioritizes the main project module and assigns unique debug ports for multi-module repos", () => {
     const modules = resolveJarRunnerModules({
       projectName: "gznqi",
@@ -55,14 +82,15 @@ describe("jarRunnerModules", () => {
     });
 
     expect(modules).toEqual([
-      { id: "gznqi", name: "gznqi", relativeDir: "gznqi", debugPort: 50055 },
+      { kind: "jar", id: "gznqi", name: "gznqi", relativeDir: "gznqi", debugPort: 50055 },
       {
+        kind: "jar",
         id: "gznqi-websocket",
         name: "gznqi-websocket",
         relativeDir: "gznqi-websocket",
         debugPort: 50056,
       },
-      { id: "sms", name: "sms", relativeDir: "sms", debugPort: 50057 },
+      { kind: "jar", id: "sms", name: "sms", relativeDir: "sms", debugPort: 50057 },
     ]);
   });
 
@@ -74,7 +102,13 @@ describe("jarRunnerModules", () => {
     });
 
     expect(modules).toEqual([
-      { id: "dbsyncer-web", name: "dbsyncer-web", relativeDir: "dbsyncer-web", debugPort: null },
+      {
+        kind: "jar",
+        id: "dbsyncer-web",
+        name: "dbsyncer-web",
+        relativeDir: "dbsyncer-web",
+        debugPort: null,
+      },
     ]);
   });
 
@@ -85,6 +119,58 @@ describe("jarRunnerModules", () => {
         pomPaths: [],
       }),
     ).toEqual([]);
+  });
+
+  it("lists dev first and then build scripts in package.json order, skipping the rest", () => {
+    expect(
+      parseNpmRunnerScripts(
+        JSON.stringify({
+          name: "blb-web",
+          scripts: {
+            lint: "eslint --ext .js,.vue src",
+            "build:prod": "vue-cli-service build",
+            dev: "vue-cli-service serve",
+            "build:stage": "vue-cli-service build --mode staging",
+            build: "vite build",
+            preview: "node build/index.js --preview",
+            "build:bad name": "echo unsafe",
+          },
+        }),
+      ),
+    ).toEqual(["dev", "build:prod", "build:stage", "build"]);
+    expect(parseNpmRunnerScripts("not json")).toEqual([]);
+    expect(parseNpmRunnerScripts(JSON.stringify({ name: "no-scripts" }))).toEqual([]);
+    expect(parseNpmRunnerScripts(JSON.stringify({ scripts: "npm run build" }))).toEqual([]);
+  });
+
+  it("resolves npm projects that have a build or dev script and drops the rest", () => {
+    const projects = resolveNpmRunnerProjects({
+      projectName: "gznqi",
+      packageJsonDirs: ["web", "", "tooling"],
+      scriptsByDir: {
+        web: ["dev", "build:prod", "build:stage"],
+        "": ["build"],
+        tooling: [],
+      },
+    });
+
+    expect(projects).toEqual([
+      {
+        kind: "npm",
+        id: "npm:",
+        name: "gznqi",
+        relativeDir: "",
+        scripts: ["build"],
+      },
+      {
+        kind: "npm",
+        id: "npm:web",
+        name: "web",
+        relativeDir: "web",
+        scripts: ["dev", "build:prod", "build:stage"],
+      },
+    ]);
+    expect(projects.every((project) => !isJarModule(project))).toBe(true);
   });
 
   it("resolves module working directories on unix and windows paths", () => {
@@ -98,12 +184,25 @@ describe("jarRunnerModules", () => {
   });
 
   it("builds mvn-op, jar, and mvn-p commands with custom debug port, server port, and Spring profile", () => {
-    const single = { id: "", name: "zjfricp", relativeDir: "", debugPort: null };
-    const child = { id: "gznqi", name: "gznqi", relativeDir: "gznqi", debugPort: 50055 };
+    const single = {
+      kind: "jar" as const,
+      id: "",
+      name: "zjfricp",
+      relativeDir: "",
+      debugPort: null,
+    };
+    const child = {
+      kind: "jar" as const,
+      id: "gznqi",
+      name: "gznqi",
+      relativeDir: "gznqi",
+      debugPort: 50055,
+    };
     const customConfig = {
       profile: "local2",
       serverPort: "9021",
       debugPort: "50058",
+      proxyTarget: "",
     };
 
     expect(buildJarRunnerShellCommand("mvn-op", single, "missing")).toBe("mvn-op");
@@ -126,12 +225,75 @@ describe("jarRunnerModules", () => {
     expect(jarCmd).toContain("missing jar");
   });
 
+  it("builds npm commands and sends PROXY_TARGET only to dev", () => {
+    const config = { ...EMPTY_MODULE_CONFIG, proxyTarget: " http://10.0.0.1:9021 " };
+    const portConfig = { ...EMPTY_MODULE_CONFIG, proxyTarget: "9021" };
+
+    expect(buildNpmShellCommand("dev")).toBe("npm run dev");
+    expect(buildNpmShellCommand("dev", config)).toBe(
+      'PROXY_TARGET="http://10.0.0.1:9021" npm run dev',
+    );
+    expect(buildNpmShellCommand("dev", portConfig)).toBe(
+      'PROXY_TARGET="http://localhost:9021" npm run dev',
+    );
+    expect(buildNpmShellCommand("build:stage", config)).toBe("npm run build:stage");
+    expect(
+      buildNpmShellCommand("dev", { ...config, proxyTarget: "http://host:9021; npm run build" }),
+    ).toBe("npm run dev");
+
+    expect(resolveProxyTarget("9021")).toBe("http://localhost:9021");
+    expect(resolveProxyTarget("192.168.1.50:9021")).toBe("http://192.168.1.50:9021");
+    expect(
+      buildNpmShellCommand("dev", { ...EMPTY_MODULE_CONFIG, proxyTarget: "10.0.0.1:9021" }),
+    ).toBe('PROXY_TARGET="http://10.0.0.1:9021" npm run dev');
+    expect(formatProxyTargetBadge("9021")).toBe(":9021");
+    expect(formatProxyTargetBadge("http://localhost:9021")).toBe(":9021");
+    expect(formatProxyTargetBadge("http://127.0.0.1:8080/")).toBe(":8080");
+    expect(formatProxyTargetBadge("192.168.1.50:9021")).toBe("192.168.1.50:9021");
+    expect(formatProxyTargetBadge("http://10.0.0.1:9021")).toBe("10.0.0.1:9021");
+
+    expect(npmRunnerCommand("dev")).toBe("npm:dev");
+    expect(isNpmRunnerCommand("npm:build:prod")).toBe(true);
+    expect(isNpmRunnerCommand("mvn-op")).toBe(false);
+    expect(npmRunnerScript("npm:build:prod")).toBe("build:prod");
+  });
+
+  it("accepts bare ports, host:port, and http(s) proxy targets that are safe to type into a shell", () => {
+    for (const valid of [
+      "",
+      "9021",
+      "8080",
+      "192.168.1.50:9021",
+      "localhost:9021",
+      "[::1]:9021",
+      "http://10.0.0.1:9021",
+      "https://api.example.com/gznqi/",
+      "http://[::1]:9021",
+    ]) {
+      expect(isProxyTargetValid(valid)).toBe(true);
+    }
+    for (const invalid of [
+      "0",
+      "99999",
+      "10.0.0.1:0",
+      "10.0.0.1:99999",
+      "ftp://10.0.0.1",
+      "http://host:9021; npm run build",
+      "http://host/$(id)",
+      "http://host/`id`",
+      "http://user:secret@host",
+    ]) {
+      expect(isProxyTargetValid(invalid)).toBe(false);
+    }
+  });
+
   it("validates custom port ranges and profile syntax", () => {
     expect(
       validateJarRunnerModuleConfig({
         profile: "local2,debug",
         serverPort: "9021",
         debugPort: "50058",
+        proxyTarget: "",
       }),
     ).toEqual({
       profileValid: true,
@@ -145,6 +307,7 @@ describe("jarRunnerModules", () => {
         profile: "bad space",
         serverPort: "99999",
         debugPort: "abc",
+        proxyTarget: "",
       }),
     ).toEqual({
       profileValid: false,

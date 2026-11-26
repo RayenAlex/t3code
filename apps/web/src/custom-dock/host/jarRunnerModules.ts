@@ -1,16 +1,38 @@
 export type JarRunnerCommand = "mvn-op" | "jar" | "mvn-p";
 
-export interface JarRunnerModule {
+/** An npm script run as `npm run <script>`; the prefix keeps it apart from the JAR commands. */
+export type NpmRunnerCommand = `npm:${string}`;
+export type RunnerCommand = JarRunnerCommand | NpmRunnerCommand;
+
+interface RunnerModuleIdentity {
   readonly id: string;
   readonly name: string;
   readonly relativeDir: string;
+}
+
+export interface JarRunnerModule extends RunnerModuleIdentity {
+  readonly kind: "jar";
   readonly debugPort: number | null;
 }
 
-export interface JarRunnerModuleConfig {
+export interface NpmRunnerProject extends RunnerModuleIdentity {
+  readonly kind: "npm";
+  /** `dev` first when present, then every `build` script in package.json order. */
+  readonly scripts: ReadonlyArray<string>;
+}
+
+export type RunnerModule = JarRunnerModule | NpmRunnerProject;
+
+export function isJarModule(module: RunnerModule): module is JarRunnerModule {
+  return module.kind === "jar";
+}
+
+export interface RunnerModuleConfig {
   readonly profile: string;
   readonly serverPort: string;
   readonly debugPort: string;
+  /** Sent as PROXY_TARGET with `npm run dev`. */
+  readonly proxyTarget: string;
 }
 
 export interface JarRunnerModuleConfigValidation {
@@ -26,10 +48,11 @@ export interface JarRunnerEntryLike {
   readonly ignored?: boolean | undefined;
 }
 
-export const EMPTY_MODULE_CONFIG: JarRunnerModuleConfig = {
+export const EMPTY_MODULE_CONFIG: RunnerModuleConfig = {
   profile: "",
   serverPort: "",
   debugPort: "",
+  proxyTarget: "",
 };
 
 const DEFAULT_DEBUG_PORT = 50055;
@@ -37,21 +60,32 @@ const SAFE_JAR_BASENAME = /^[A-Za-z0-9._-]+$/;
 const SAFE_PROFILE_PATTERN = /^[A-Za-z0-9._,-]+$/;
 const PORT_DIGITS_PATTERN = /^\d+$/;
 const PROFILE_FILE_PATTERN = /^application-([A-Za-z0-9._-]+)\.(?:yml|yaml|properties)$/i;
+const NPM_PACKAGE_JSON = "package.json";
+const NPM_RUNNER_COMMAND_PREFIX = "npm:";
+const NPM_RUNNER_SCRIPT_PATTERN = /^(?:build(?::[A-Za-z0-9._-]+)?|dev)$/;
+// Doubles as the shell-safety allowlist: the value is typed into a terminal inside double quotes.
+const PROXY_TARGET_PATTERN = /^https?:\/\/[A-Za-z0-9.[\]:-]+(?:\/[A-Za-z0-9._~:@%+-]*)*\/?$/;
+const PROXY_HOST_PORT_PATTERN =
+  /^(?:\[[0-9A-Fa-f:]+\]|[A-Za-z0-9.-]+):(\d{1,5})(?:\/[A-Za-z0-9._~:@%+-]*)*\/?$/;
 const STORAGE_KEY = "t3code:jar-runner-config:v1";
 const MAX_STORED_PROJECTS = 40;
+export const NPM_DEV_SCRIPT = "dev";
 
 function normalizeEntryPath(entryPath: string): string {
   return entryPath.replaceAll("\\", "/").replace(/^\.\//, "").replace(/^\/+/, "");
 }
 
-function extractPomRelativeDir(entryPath: string): string | null {
+function extractTopLevelRelativeDir(entryPath: string, fileName: string): string | null {
+  const suffix = `/${fileName}`;
   const normalized = normalizeEntryPath(entryPath);
-  if (normalized === "pom.xml") return "";
-  const slashIndex = normalized.indexOf("/");
-  if (slashIndex === -1) return null;
-  if (normalized.slice(slashIndex + 1) !== "pom.xml") return null;
-  const dir = normalized.slice(0, slashIndex);
-  return dir.length > 0 && dir !== "." && dir !== ".." ? dir : null;
+  if (normalized === fileName) return "";
+  if (!normalized.endsWith(suffix)) return null;
+  const dir = normalized.slice(0, -suffix.length);
+  return dir.length > 0 && !dir.includes("/") && dir !== "." && dir !== ".." ? dir : null;
+}
+
+function extractPomRelativeDir(entryPath: string): string | null {
+  return extractTopLevelRelativeDir(entryPath, "pom.xml");
 }
 
 export function extractTopLevelPomPaths(
@@ -69,6 +103,19 @@ export function extractTopLevelPomPaths(
     paths.push(canonicalPath);
   }
   return paths;
+}
+
+/** Working directories (relative, "" for the root) holding a package.json. */
+export function extractTopLevelPackageJsonDirs(
+  entries: ReadonlyArray<JarRunnerEntryLike>,
+): ReadonlyArray<string> {
+  const dirs = new Set<string>();
+  for (const entry of entries) {
+    if (entry.kind !== "file" || entry.ignored) continue;
+    const relativeDir = extractTopLevelRelativeDir(entry.path, NPM_PACKAGE_JSON);
+    if (relativeDir !== null) dirs.add(relativeDir);
+  }
+  return [...dirs];
 }
 
 export function extractProfilesByModule(
@@ -125,6 +172,23 @@ export function extractProfilesByModule(
   return result;
 }
 
+/** Root first, then the folder named like the project, then the rest alphabetically. */
+function sortByProjectPriority<T extends { readonly relativeDir: string }>(
+  items: ReadonlyArray<T>,
+  fallbackName: string,
+): ReadonlyArray<T> {
+  const projectNameLower = fallbackName.toLowerCase();
+  const priority = (item: T) =>
+    item.relativeDir === "" ? 0 : item.relativeDir.toLowerCase() === projectNameLower ? 1 : 2;
+  return items.toSorted((left, right) => {
+    const priorityDiff = priority(left) - priority(right);
+    if (priorityDiff !== 0) return priorityDiff;
+    const leftName = left.relativeDir === "" ? fallbackName : left.relativeDir;
+    const rightName = right.relativeDir === "" ? fallbackName : right.relativeDir;
+    return leftName.localeCompare(rightName);
+  });
+}
+
 export function resolveJarRunnerModules(input: {
   readonly projectName: string;
   readonly pomPaths: ReadonlyArray<string>;
@@ -147,30 +211,54 @@ export function resolveJarRunnerModules(input: {
       : [];
   const chosen = springBootFiltered.length > 0 ? springBootFiltered : normalizedPoms;
 
-  if (chosen.length === 0) {
-    return [];
-  }
-
-  const projectNameLower = fallbackName.toLowerCase();
-  const sorted = chosen.toSorted((left, right) => {
-    const leftName = left.relativeDir === "" ? fallbackName : left.relativeDir;
-    const rightName = right.relativeDir === "" ? fallbackName : right.relativeDir;
-    const leftPriority =
-      left.relativeDir === "" ? 0 : leftName.toLowerCase() === projectNameLower ? 1 : 2;
-    const rightPriority =
-      right.relativeDir === "" ? 0 : rightName.toLowerCase() === projectNameLower ? 1 : 2;
-    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
-    return leftName.localeCompare(rightName);
-  });
+  const sorted = sortByProjectPriority(chosen, fallbackName);
 
   // Multiple concurrent mvn-op runs kill each other if they share the default 50055 debug port.
   const assignDebugPorts = sorted.length > 1;
   return sorted.map((item, index) => ({
+    kind: "jar" as const,
     id: item.relativeDir,
     name: item.relativeDir === "" ? fallbackName : item.relativeDir,
     relativeDir: item.relativeDir,
     debugPort: assignDebugPorts ? DEFAULT_DEBUG_PORT + index : null,
   }));
+}
+
+export function parseNpmRunnerScripts(contents: string): ReadonlyArray<string> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    return [];
+  }
+  const scripts = (parsed as { readonly scripts?: unknown } | null)?.scripts;
+  if (!scripts || typeof scripts !== "object") return [];
+  const names = Object.keys(scripts).filter((name) => NPM_RUNNER_SCRIPT_PATTERN.test(name));
+  return names.includes(NPM_DEV_SCRIPT)
+    ? [NPM_DEV_SCRIPT, ...names.filter((name) => name !== NPM_DEV_SCRIPT)]
+    : names;
+}
+
+export function resolveNpmRunnerProjects(input: {
+  readonly projectName: string;
+  readonly packageJsonDirs: ReadonlyArray<string>;
+  readonly scriptsByDir: Readonly<Record<string, ReadonlyArray<string>>>;
+}): ReadonlyArray<NpmRunnerProject> {
+  const fallbackName = input.projectName.trim() || "project";
+  const projects = input.packageJsonDirs.flatMap((relativeDir) => {
+    const scripts = input.scriptsByDir[relativeDir] ?? [];
+    if (scripts.length === 0) return [];
+    return [
+      {
+        kind: "npm" as const,
+        id: `${NPM_RUNNER_COMMAND_PREFIX}${relativeDir}`,
+        name: relativeDir === "" ? fallbackName : relativeDir,
+        relativeDir,
+        scripts,
+      },
+    ];
+  });
+  return sortByProjectPriority(projects, fallbackName);
 }
 
 function parseOptionalPort(
@@ -185,7 +273,7 @@ function parseOptionalPort(
 }
 
 export function validateJarRunnerModuleConfig(
-  config: JarRunnerModuleConfig,
+  config: RunnerModuleConfig,
 ): JarRunnerModuleConfigValidation {
   const profileTrimmed = config.profile.trim();
   const profileValid = profileTrimmed.length === 0 || SAFE_PROFILE_PATTERN.test(profileTrimmed);
@@ -199,17 +287,18 @@ export function validateJarRunnerModuleConfig(
   };
 }
 
-export function hasCustomModuleConfig(config: JarRunnerModuleConfig): boolean {
+export function hasCustomModuleConfig(config: RunnerModuleConfig): boolean {
   return (
     config.profile.trim().length > 0 ||
     config.serverPort.trim().length > 0 ||
-    config.debugPort.trim().length > 0
+    config.debugPort.trim().length > 0 ||
+    config.proxyTarget.trim().length > 0
   );
 }
 
-export function resolveEffectiveDebugPort(
+function resolveEffectiveDebugPort(
   module: JarRunnerModule,
-  config?: JarRunnerModuleConfig,
+  config?: RunnerModuleConfig,
 ): number | null {
   if (config) {
     const parsed = parseOptionalPort(config.debugPort);
@@ -228,7 +317,7 @@ export function resolveModuleCwd(rootCwd: string, relativeDir: string): string {
   return `${trimmedRoot}${separator}${normalizedRelative}`;
 }
 
-export function buildMvnOpCommand(module: JarRunnerModule, config?: JarRunnerModuleConfig): string {
+export function buildMvnOpCommand(module: JarRunnerModule, config?: RunnerModuleConfig): string {
   const parts = ["mvn-op"];
   const effectiveDebugPort = resolveEffectiveDebugPort(module, config);
   if (effectiveDebugPort !== null) {
@@ -249,7 +338,7 @@ export function buildJarRunnerShellCommand(
   command: JarRunnerCommand,
   module: JarRunnerModule,
   missingJarMessage: string,
-  config?: JarRunnerModuleConfig,
+  config?: RunnerModuleConfig,
 ): string {
   if (command === "mvn-op") {
     return buildMvnOpCommand(module, config);
@@ -278,16 +367,75 @@ export function buildJarRunnerShellCommand(
   return `${resolveJar}; if [ -n "$jar" ]; then java-op -jar "$jar"${jarArgsSuffix}; else printf '%s\\n' '${escapedMessage}'; fi`;
 }
 
-type StoredConfigsByProject = Record<string, Record<string, JarRunnerModuleConfig>>;
+export function npmRunnerCommand(script: string): NpmRunnerCommand {
+  return `npm:${script}`;
+}
 
-function sanitizeConfig(value: unknown): JarRunnerModuleConfig | null {
+export function isNpmRunnerCommand(command: RunnerCommand): command is NpmRunnerCommand {
+  return command.startsWith(NPM_RUNNER_COMMAND_PREFIX);
+}
+
+export function npmRunnerScript(command: NpmRunnerCommand): string {
+  return command.slice(NPM_RUNNER_COMMAND_PREFIX.length);
+}
+
+export function resolveProxyTarget(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return "";
+  if (PORT_DIGITS_PATTERN.test(trimmed)) {
+    const parsed = Number.parseInt(trimmed, 10);
+    return Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535
+      ? `http://localhost:${parsed}`
+      : null;
+  }
+  if (PROXY_TARGET_PATTERN.test(trimmed)) return trimmed;
+  const hostPortMatch = PROXY_HOST_PORT_PATTERN.exec(trimmed);
+  if (hostPortMatch) {
+    const port = Number.parseInt(hostPortMatch[1] ?? "", 10);
+    return Number.isInteger(port) && port >= 1 && port <= 65535 ? `http://${trimmed}` : null;
+  }
+  return null;
+}
+
+export function isProxyTargetValid(raw: string): boolean {
+  return resolveProxyTarget(raw) !== null;
+}
+
+export function formatProxyTargetBadge(raw: string): string | null {
+  const resolved = resolveProxyTarget(raw);
+  if (!resolved) return null;
+  const withoutScheme = resolved.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  const localMatch = /^(?:localhost|127\.0\.0\.1)(:\d+)$/i.exec(withoutScheme);
+  return localMatch ? localMatch[1]! : withoutScheme;
+}
+
+export function buildNpmShellCommand(script: string, config?: RunnerModuleConfig): string {
+  const resolved = config ? resolveProxyTarget(config.proxyTarget) : "";
+  const devPrefix =
+    script === NPM_DEV_SCRIPT && resolved && resolved.length > 0
+      ? `PROXY_TARGET="${resolved}" `
+      : "";
+  return `${devPrefix}npm run ${script}`;
+}
+
+type StoredConfigsByProject = Record<string, Record<string, RunnerModuleConfig>>;
+
+function sanitizeConfig(value: unknown): RunnerModuleConfig | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   const profile = typeof record.profile === "string" ? record.profile : "";
   const serverPort = typeof record.serverPort === "string" ? record.serverPort : "";
   const debugPort = typeof record.debugPort === "string" ? record.debugPort : "";
-  if (profile.length === 0 && serverPort.length === 0 && debugPort.length === 0) return null;
-  return { profile, serverPort, debugPort };
+  const proxyTarget = typeof record.proxyTarget === "string" ? record.proxyTarget : "";
+  if (
+    profile.length === 0 &&
+    serverPort.length === 0 &&
+    debugPort.length === 0 &&
+    proxyTarget.length === 0
+  ) {
+    return null;
+  }
+  return { profile, serverPort, debugPort, proxyTarget };
 }
 
 function readAllStoredConfigs(): StoredConfigsByProject {
@@ -299,7 +447,7 @@ function readAllStoredConfigs(): StoredConfigsByProject {
     const out: StoredConfigsByProject = {};
     for (const [projectKey, projectValue] of Object.entries(parsed as Record<string, unknown>)) {
       if (!projectValue || typeof projectValue !== "object") continue;
-      const modules: Record<string, JarRunnerModuleConfig> = {};
+      const modules: Record<string, RunnerModuleConfig> = {};
       for (const [moduleId, moduleValue] of Object.entries(
         projectValue as Record<string, unknown>,
       )) {
@@ -316,20 +464,20 @@ function readAllStoredConfigs(): StoredConfigsByProject {
 
 export function loadProjectJarRunnerConfigs(
   projectKey: string,
-): Readonly<Record<string, JarRunnerModuleConfig>> {
+): Readonly<Record<string, RunnerModuleConfig>> {
   const all = readAllStoredConfigs();
   return all[projectKey] ?? {};
 }
 
 export function saveProjectJarRunnerConfigs(
   projectKey: string,
-  configs: Readonly<Record<string, JarRunnerModuleConfig>>,
+  configs: Readonly<Record<string, RunnerModuleConfig>>,
 ): void {
   try {
     const storage = globalThis.localStorage;
     if (!storage) return;
     const all = readAllStoredConfigs();
-    const cleaned: Record<string, JarRunnerModuleConfig> = {};
+    const cleaned: Record<string, RunnerModuleConfig> = {};
     for (const [moduleId, config] of Object.entries(configs)) {
       const clean = sanitizeConfig(config);
       if (clean) cleaned[moduleId] = clean;
