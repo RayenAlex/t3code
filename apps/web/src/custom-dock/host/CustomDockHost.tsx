@@ -551,6 +551,7 @@ function DockSurfaces({
 }) {
   const copy = useDockCopy();
   const { snapshot } = useDockRuntime();
+  const taskSnapshot = snapshot?.plans.todoStatus === "provided" ? snapshot : null;
   const rightRail = useRightRailGeometry(scope !== null);
   const glance = registry.find((panel) => panel.id === GLANCE);
   function restore() {
@@ -566,12 +567,12 @@ function DockSurfaces({
           <RightRailGlmQuotaSlot scope={scope} />
           <RightRailGeminiQuotaSlot scope={scope} router={router} />
           <RightRailJarRunnerSlot key={threadKey(scope)} scope={scope} />
-          {snapshot && (
+          {taskSnapshot && (
             <section
               data-custom-dock-right-tasks="inline"
               className="dropdown-glass pointer-events-auto flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/75 bg-card/95 text-card-foreground shadow-sm"
             >
-              <RightRailTaskCard snapshot={snapshot} open={openGlance} />
+              <RightRailTaskCard snapshot={taskSnapshot} open={openGlance} />
             </section>
           )}
         </RightRailTaskPortal>
@@ -592,7 +593,9 @@ function DockSurfaces({
               anchor={anchor}
               open={openGlance}
               panel={
-                rightRail === null && snapshot ? <ComposerTaskPlan snapshot={snapshot} /> : null
+                rightRail === null && taskSnapshot ? (
+                  <ComposerTaskPlan snapshot={taskSnapshot} />
+                ) : null
               }
               close={
                 scope

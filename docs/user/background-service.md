@@ -97,12 +97,15 @@ The card appears in the open right rail when that model is selected. Re-reading
 shows Magpie's cached quota; it does not refresh the vendor's quota or identify
 which account handled the last message.
 
-To display GPT quota, turn on **Show GPT quota** and save. It reads the 5-hour
-and 7-day windows from a local Codex subscription in Magpie when you select a
-GPT model on an instance pointed at that gateway. If Magpie has multiple Codex
-subscriptions, enter the exact account login or displayed alias from Magpie.
-For models that don't include GPT in their ID or displayed name, enter the exact
-ID as a GPT model alias. You can turn GLM and GPT quota on or off independently.
+To display GPT quota, turn on **Show GPT quota** and save. For a route through
+Magpie's `cpa` provider, enter `cpa` as the **Magpie GPT provider ID**. Leave the
+provider ID blank to use Magpie's built-in Codex subscription. If the selected
+provider has multiple cards, enter its exact account login or alias as shown in
+Magpie. T3 only reads the cached card on Magpie with the same gateway key; no
+CLIProxyAPI management address or key is needed. It shows the balance or quota
+windows that Magpie reports, not a percentage inferred from the balance or from
+request counts. For models without GPT in their ID or name, enter the exact ID as
+an alias. The GPT model must be selected on an instance using this gateway.
 
 An existing `T3CODE_MAGPIE_GLM_QUOTA` server variable still works until you save
 an in-app configuration. Turning off the in-app setting also suppresses that

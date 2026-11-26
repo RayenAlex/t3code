@@ -12812,7 +12812,8 @@
   "1172ed54977ca854": "Magpie-Kontingent",
   "e76cd3a269d01fc2": "Zeigt das in Magpie zwischengespeicherte GLM- oder GPT-Kontingent. Das Speichern ändert das Modellrouting nicht.",
   "50da9833accd7700": "GPT-Kontingent anzeigen",
-  "ed504552e0620810": "Das GPT-Kontingent wird für Instanzen angezeigt, die mit diesem Gateway verbunden sind. Lass den Kontonamen nur leer, wenn Magpie ein einziges Codex-Abonnement hat.",
-  "cecd8437a8dc565f": "Codex-Kontoname (optional)",
-  "25abe03e3a72e677": "GPT-Modellaliasnamen (durch Kommas getrennt)"
+  "25abe03e3a72e677": "GPT-Modellaliasnamen (durch Kommas getrennt)",
+  "7a23600f76153af8": "Das GPT-Kontingent stammt von der ausgewählten Anbieterkarte dieses Magpie-Gateways. Gib die Anbieter-ID ein, etwa cpa, oder lass sie für das integrierte Codex-Abonnement leer.",
+  "2a1fd9bb151e2b28": "Magpie-Anbieter-ID für GPT (optional)",
+  "531062b4f6530db5": "GPT-Kontoname in Magpie (optional)"
 }

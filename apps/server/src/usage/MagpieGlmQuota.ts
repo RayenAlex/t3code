@@ -7,6 +7,7 @@ import {
   isMagpieGlmDriver,
   magpieGatewayOrigin,
   magpieQuotaFamily,
+  MagpieQuotaBalancePart,
   type MagpieQuotaFamily,
   type MagpieGlmQuota as Quota,
   type MagpieGlmQuotaBinding,
@@ -61,6 +62,8 @@ const CardReading = Schema.Struct({
   readAt: Schema.optional(Schema.String),
   asOf: Schema.optional(Schema.String),
   error: Schema.optional(Schema.String),
+  balance: Schema.optional(Schema.String),
+  balanceParts: Schema.optional(Schema.Array(Schema.Unknown)),
   windows: Schema.Array(Schema.Unknown),
   routing: Schema.optional(Schema.Array(Schema.Unknown)),
 });
@@ -72,6 +75,12 @@ const Window = Schema.Struct({
   unlimited: Schema.optional(Schema.Boolean),
   balance: Schema.optional(Schema.Number),
 });
+const WalletWindow = Schema.Struct({
+  balance: Schema.Finite,
+  unit: Schema.optional(Schema.String),
+});
+const decodeWalletWindow = Schema.decodeUnknownOption(WalletWindow);
+
 const Routing = Schema.Struct({
   span: Schema.optional(Schema.Finite),
   aside: Schema.optional(Schema.Boolean),
@@ -79,6 +88,7 @@ const Routing = Schema.Struct({
 const decodeConfig = Schema.decodeUnknownOption(Config);
 const decodeCardIdentity = Schema.decodeUnknownOption(CardIdentity);
 const decodeCardReading = Schema.decodeUnknownOption(CardReading);
+const decodeBalancePart = Schema.decodeUnknownOption(MagpieQuotaBalancePart);
 const decodeWindow = Schema.decodeUnknownOption(Window);
 const decodeRouting = Schema.decodeUnknownOption(Routing);
 const decodeReply = Schema.decodeUnknownEffect(
@@ -151,6 +161,22 @@ function toWindow(
   };
 }
 
+function quotaBalance(
+  cardBalance: string | undefined,
+  windows: readonly unknown[],
+): string | undefined {
+  const summary = cardBalance?.trim();
+  if (summary && summary.length <= 512) return summary;
+  const balances = windows.flatMap((raw) => {
+    const window = Option.getOrUndefined(decodeWalletWindow(raw));
+    if (!window) return [];
+    const unit = window.unit?.trim();
+    return [unit ? `${window.balance} ${unit}` : String(window.balance)];
+  });
+  const balance = balances.join(" · ");
+  return balance && balance.length <= 512 ? balance : undefined;
+}
+
 function toQuota(card: unknown, now: number, family: MagpieQuotaFamily): Quota {
   const reading = Option.getOrUndefined(decodeCardReading(card));
   if (!reading || reading.error) return { status: "unconfirmed" };
@@ -167,13 +193,23 @@ function toQuota(card: unknown, now: number, family: MagpieQuotaFamily): Quota {
     const matches = parsed.filter((window) => window.id === `${family}-${id}`);
     return matches.length === 1 ? matches : [];
   });
-  return windows.length === 0
+  const balance = family === "gpt" ? quotaBalance(reading.balance, reading.windows) : undefined;
+  const balanceParts =
+    family === "gpt"
+      ? (reading.balanceParts ?? []).flatMap((raw) => {
+          const part = Option.getOrUndefined(decodeBalancePart(raw));
+          return part ? [part] : [];
+        })
+      : [];
+  return windows.length === 0 && balance === undefined && balanceParts.length === 0
     ? { status: "unconfirmed" }
     : {
         status: "ready",
         checkedAt: DateTime.formatIso(DateTime.makeUnsafe(readAt)),
         expiresAt: DateTime.formatIso(DateTime.makeUnsafe(expiresAt)),
         windows,
+        ...(balance !== undefined ? { balance } : {}),
+        ...(balanceParts.length > 0 ? { balanceParts } : {}),
       };
 }
 
@@ -249,8 +285,14 @@ const make = Effect.gen(function* () {
       gpt?.modelAliases,
     );
     if (!family) return { status: "notApplicable" };
-    const cardProvider = family === "gpt" ? "codex" : config.provider;
-    const cardKind = family === "gpt" ? "subscription" : (config.kind ?? "plan");
+    const gptProvider = gpt?.provider;
+    const cardProvider = family === "gpt" ? (gptProvider ?? "codex") : config.provider;
+    const cardKinds =
+      family === "gpt"
+        ? gptProvider && gptProvider !== "codex"
+          ? ["subscription", "plan", "balance"]
+          : ["subscription"]
+        : [config.kind ?? "plan"];
     const cardUser = family === "gpt" ? gpt?.user : (config.user ?? "");
     const headers = saved
       ? saved.gatewayKey && saved.gatewayKey !== SECRET_REDACTED
@@ -277,7 +319,7 @@ const make = Effect.gen(function* () {
         card &&
         !card.from &&
         card.provider === cardProvider &&
-        card.kind === cardKind &&
+        cardKinds.includes(card.kind) &&
         ((card.user ?? "") === cardUser ||
           (family === "gpt" && (!cardUser || card.alias === cardUser)))
       );

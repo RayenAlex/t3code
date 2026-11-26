@@ -10,7 +10,14 @@ import {
   deriveRunTelemetry,
   deriveRecentRunsTelemetry,
 } from "./telemetry";
-import { isTerminalRun, latestDockRun, timestampMs } from "./runStructure";
+import {
+  collectRunTimingIntervals,
+  intervalUnionMs,
+  isTerminalRun,
+  latestDockRun,
+  subtractIntervals,
+  timestampMs,
+} from "./runStructure";
 
 type PendingWrites = {
   queued: Map<string, RunSummary>;
@@ -74,6 +81,7 @@ function latestResponseTokens(projection: ThreadStructure, run: OrchestrationV2R
 
 export type LiveOutputProgress = {
   readonly outputTokens: number;
+  readonly activeMs: number;
   readonly startedAtMs: number;
   readonly reportedAtMs: number;
 };
@@ -90,7 +98,12 @@ function liveOutputProgress(
       .filter((attempt) => attempt.runId === run.id)
       .map((attempt) => attempt.id),
   );
-  let outputTokens = 0;
+  const samples: Array<{
+    readonly tokens: number;
+    readonly startMs: number;
+    readonly endMs: number;
+    readonly perResponse: boolean;
+  }> = [];
   let reportedAtMs = startedAtMs;
   for (const turn of projection.providerTurns ?? []) {
     if (
@@ -106,9 +119,15 @@ function liveOutputProgress(
         ? turn.turnTokenUsage?.outputTokens
         : undefined;
     if (settledOutput !== undefined && settledOutput > 0) {
-      outputTokens += settledOutput;
-      const completedAt = timestampMs(turn.completedAt ?? turn.startedAt);
-      if (completedAt !== null) reportedAtMs = Math.max(reportedAtMs, completedAt);
+      const turnStart = timestampMs(turn.startedAt) ?? startedAtMs;
+      const completedAt = timestampMs(turn.completedAt ?? turn.startedAt) ?? turnStart;
+      samples.push({
+        tokens: settledOutput,
+        startMs: turnStart,
+        endMs: completedAt,
+        perResponse: false,
+      });
+      reportedAtMs = Math.max(reportedAtMs, completedAt);
       continue;
     }
     const report = turn.tokenUsage;
@@ -117,10 +136,47 @@ function liveOutputProgress(
     const turnStartedAt = timestampMs(turn.startedAt) ?? startedAtMs;
     const reportTime = Date.parse(report.updatedAt);
     if (!Number.isFinite(reportTime) || reportTime < turnStartedAt) continue;
-    outputTokens += report.outputTokens;
+    samples.push({
+      tokens: report.outputTokens,
+      startMs: turnStartedAt,
+      endMs: reportTime,
+      perResponse: true,
+    });
     reportedAtMs = Math.max(reportedAtMs, reportTime);
   }
-  return outputTokens > 0 ? { outputTokens, startedAtMs, reportedAtMs } : null;
+  if (samples.length === 0) return null;
+
+  const { blockingNonModel, effectiveNonModel } = collectRunTimingIntervals({
+    projection,
+    runId: run.id,
+    rootNodeId: run.rootNodeId,
+    windowStart: startedAtMs,
+    windowEnd: reportedAtMs,
+  });
+
+  let outputTokens = 0;
+  let activeMs = 0;
+  for (const sample of samples) {
+    outputTokens += sample.tokens;
+    let windowStart = sample.startMs;
+    if (sample.perResponse) {
+      // Live turn.tokenUsage reports the latest single response, not the whole run; anchor after the last completed tool/wait.
+      let lastBlockingEnd: number | null = null;
+      for (const [, end] of blockingNonModel) {
+        if (end >= sample.startMs && end <= sample.endMs) {
+          lastBlockingEnd = lastBlockingEnd === null ? end : Math.max(lastBlockingEnd, end);
+        }
+      }
+      if (lastBlockingEnd !== null && sample.endMs - lastBlockingEnd >= 200) {
+        windowStart = lastBlockingEnd;
+      }
+    }
+    activeMs += intervalUnionMs(
+      subtractIntervals([[windowStart, sample.endMs]], effectiveNonModel),
+    );
+  }
+
+  return outputTokens > 0 ? { outputTokens, activeMs, startedAtMs, reportedAtMs } : null;
 }
 
 export function deriveDockSnapshot(
@@ -141,7 +197,7 @@ export function deriveDockSnapshot(
     latestResponseTokens: latestResponseTokens(projection, run),
     liveOutputProgress: liveOutputProgress(projection, run),
     recentRuns,
-    plans: derivePlanSnapshot(projection),
+    plans: derivePlanSnapshot(projection, nowMs),
     activity: deriveActivitySnapshot(projection, nowMs),
   } satisfies CustomDockThreadSnapshot & {
     latestResponseTokens: number | null;

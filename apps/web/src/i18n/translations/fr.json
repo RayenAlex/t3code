@@ -12812,7 +12812,8 @@
   "1172ed54977ca854": "Quota Magpie",
   "e76cd3a269d01fc2": "Affiche le quota GLM ou GPT mis en cache par Magpie. L’enregistrement ne modifie pas le routage des modèles.",
   "50da9833accd7700": "Afficher le quota GPT",
-  "ed504552e0620810": "Le quota GPT s’affiche pour les instances connectées à cette passerelle. Laissez le nom du compte vide uniquement si Magpie ne contient qu’un abonnement Codex.",
-  "cecd8437a8dc565f": "Nom du compte Codex (facultatif)",
-  "25abe03e3a72e677": "Alias de modèles GPT (séparés par des virgules)"
+  "25abe03e3a72e677": "Alias de modèles GPT (séparés par des virgules)",
+  "7a23600f76153af8": "Le quota GPT est lu sur la carte du fournisseur sélectionné dans cette passerelle Magpie. Indiquez son identifiant, par exemple cpa, ou laissez le champ vide pour utiliser l’abonnement Codex intégré.",
+  "2a1fd9bb151e2b28": "Identifiant du fournisseur GPT dans Magpie (facultatif)",
+  "531062b4f6530db5": "Nom du compte GPT dans Magpie (facultatif)"
 }

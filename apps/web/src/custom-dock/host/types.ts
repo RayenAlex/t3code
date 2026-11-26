@@ -39,14 +39,20 @@ export type RunSummary = RunTelemetry & {
   completedAt: string;
 };
 export type PlanStep = {
+  id: string;
   label: string;
   stage: "Done" | "Now" | "Next";
   durationMs: number | null;
   durationAnchorAt: string | null;
+  activeElapsedMs: number | null;
+  progressPercent: number;
+  weight: number;
+  estimatedDurationMs: number | null;
 };
 export type PlanSnapshot = {
   todoStatus: "provided" | "not_provided";
   steps: readonly PlanStep[];
+  overallPercent: number;
   referenceEtaMs: number | null;
   proposedPlan: { id: string; status: string; markdown: string } | null;
 };

@@ -23,7 +23,7 @@ import { useStore } from "zustand";
 import { Button } from "../../components/ui/button";
 import { tickTextContent } from "../../lib/tickTextContent";
 import { useRightPanelStore } from "../../rightPanelStore";
-import { computePlanProgress, type LiveActivityAction } from "../core/plans";
+import { estimatePlanTiming, type LiveActivityAction } from "../core/plans";
 import type { LiveOutputProgress } from "../core/threadObserver";
 import { DockTab, DockTabList } from "../host/DockTabs";
 import {
@@ -105,51 +105,32 @@ function ClockLabel({
   );
 }
 
-function providerRateAt(
-  progress: LiveOutputProgress | null,
-  environmentId: EnvironmentId | undefined,
-  nowMs: number,
-): number | null {
-  if (progress === null || progress.outputTokens <= 0) return null;
-  const serverNow = environmentId === undefined ? nowMs : toServerClock(environmentId, nowMs);
-  const elapsedMs = Math.max(
-    progress.reportedAtMs - progress.startedAtMs,
-    serverNow - progress.startedAtMs,
-  );
-  return elapsedMs >= 200 ? (progress.outputTokens * 1000) / elapsedMs : null;
-}
-
-function initialProviderRate(progress: LiveOutputProgress | null): number | null {
-  if (progress === null || progress.outputTokens <= 0) return null;
-  const elapsedMs = Math.max(0, progress.reportedAtMs - progress.startedAtMs);
-  return elapsedMs >= 200 ? (progress.outputTokens * 1000) / elapsedMs : null;
+function providerRate(progress: LiveOutputProgress | null): number | null {
+  if (progress === null || progress.outputTokens <= 0 || progress.activeMs < 200) return null;
+  return (progress.outputTokens * 1000) / progress.activeMs;
 }
 
 function LiveRateLabel({
   progress,
   readLiveTps,
-  environmentId,
   template,
   fallback,
 }: {
   readonly progress: LiveOutputProgress | null;
   readonly readLiveTps?: ((nowMs: number) => number | null) | undefined;
-  readonly environmentId?: EnvironmentId;
   readonly template: string;
   readonly fallback: string;
 }) {
   const formatRate = (rate: number | null) =>
     rate === null ? fallback : template.replace("{value}", number(rate));
-  const initial = initialProviderRate(progress);
+  const initial = providerRate(progress);
   return (
     <span
       className="tabular-nums"
       ref={tickTextContent((nowMs) => {
-        const rate = readLiveTps
-          ? readLiveTps(nowMs)
-          : providerRateAt(progress, environmentId, nowMs);
+        const rate = readLiveTps ? readLiveTps(nowMs) : providerRate(progress);
         return formatRate(rate);
-      }, true)}
+      }, readLiveTps !== undefined)}
     >
       {formatRate(initial)}
     </span>
@@ -160,18 +141,16 @@ function LiveFooterRate({
   separated,
   progress,
   readLiveTps,
-  environmentId,
   template,
   ariaLabel,
 }: {
   readonly separated: boolean;
   readonly progress: LiveOutputProgress | null;
   readonly readLiveTps?: ((nowMs: number) => number | null) | undefined;
-  readonly environmentId?: EnvironmentId;
   readonly template: string;
   readonly ariaLabel: string;
 }) {
-  const initial = initialProviderRate(progress);
+  const initial = providerRate(progress);
   const initialText = initial === null ? "" : template.replace("{value}", number(initial));
   return (
     <span
@@ -182,16 +161,13 @@ function LiveFooterRate({
         if (!node) return;
         const valueNode = node.querySelector("[data-live-rate-value]");
         const write = () => {
-          const nowMs = Date.now();
-          const rate = readLiveTps
-            ? readLiveTps(nowMs)
-            : providerRateAt(progress, environmentId, nowMs);
+          const rate = readLiveTps ? readLiveTps(Date.now()) : providerRate(progress);
           const next = rate === null ? "" : template.replace("{value}", number(rate));
           node.style.display = next === "" ? "none" : "";
           if (valueNode && valueNode.textContent !== next) valueNode.textContent = next;
         };
         write();
-        return secondTick.subscribe(write);
+        return readLiveTps !== undefined ? secondTick.subscribe(write) : undefined;
       }}
     >
       <FooterMetric separated={separated}>
@@ -213,49 +189,21 @@ function Phase({ phase }: { readonly phase: DockSnapshot["activity"]["phase"] })
   );
 }
 
-function LivePlanProgress({
+function PlanProgressBar({
   steps,
-  runStartedAtMs,
-  environmentId,
+  overallPercent,
   label,
 }: {
   readonly steps: DockSnapshot["plans"]["steps"];
-  readonly runStartedAtMs: number | null;
-  readonly environmentId?: EnvironmentId;
+  readonly overallPercent: number;
   readonly label?: ReactNode;
 }) {
   const done = steps.filter((step) => step.stage === "Done").length;
   const total = steps.length;
   const isComplete = total > 0 && done === total;
-  const isLive =
-    runStartedAtMs !== null && !isComplete && steps.some((step) => step.stage === "Now");
-  const initialPercent = total > 0 ? Math.round((100 * done) / total) : 0;
+  const pct = isComplete ? 100 : Math.min(99, Math.max(0, overallPercent));
   return (
-    <div
-      className="space-y-1.5"
-      ref={(node) => {
-        if (!node) return;
-        const pctNode = node.querySelector<HTMLElement>("[data-plan-percent]");
-        const fillNode = node.querySelector<HTMLElement>("[data-plan-fill]");
-        const barNode = node.querySelector<HTMLElement>("[role='progressbar']");
-        const write = () => {
-          const nowMs = Date.now();
-          const serverNow =
-            environmentId === undefined ? nowMs : toServerClock(environmentId, nowMs);
-          const { overallPercent } = computePlanProgress({
-            steps,
-            runStartedAtMs,
-            nowMs: serverNow,
-          });
-          const pct = isLive ? overallPercent : initialPercent;
-          if (pctNode) pctNode.textContent = `${pct}%`;
-          if (fillNode) fillNode.style.width = `${pct}%`;
-          if (barNode) barNode.setAttribute("aria-valuenow", String(pct));
-        };
-        write();
-        return isLive ? secondTick.subscribe(write) : undefined;
-      }}
-    >
+    <div className="space-y-1.5">
       {label !== undefined && (
         <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
           {label}
@@ -263,7 +211,7 @@ function LivePlanProgress({
             data-plan-percent
             className="shrink-0 font-mono text-2xs font-medium text-foreground tabular-nums"
           >
-            {initialPercent}%
+            {pct}%
           </span>
         </div>
       )}
@@ -271,7 +219,7 @@ function LivePlanProgress({
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={initialPercent}
+        aria-valuenow={pct}
         aria-label={`${done}/${total}`}
         className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
       >
@@ -280,63 +228,155 @@ function LivePlanProgress({
           className={`h-full rounded-full transition-[width] duration-300 ease-out motion-reduce:transition-none ${
             isComplete ? "bg-success-foreground" : "bg-info-foreground"
           }`}
-          style={{ width: `${initialPercent}%` }}
+          style={{ width: `${pct}%` }}
         />
       </div>
     </div>
   );
 }
 
-function ActiveStepProgress({
-  steps,
-  stepId,
-  runStartedAtMs,
-  environmentId,
-}: {
-  readonly steps: DockSnapshot["plans"]["steps"];
-  readonly stepId: string;
-  readonly runStartedAtMs: number | null;
-  readonly environmentId?: EnvironmentId;
-}) {
-  const isLive = runStartedAtMs !== null;
+function ActiveStepProgress({ progressPercent }: { readonly progressPercent: number }) {
+  const pct = Math.min(99, Math.max(0, progressPercent));
+  const fillWidth = pct <= 0 ? 0 : Math.max(pct, 6);
   return (
-    <div
-      className="mt-1 flex items-center gap-2"
-      ref={(node) => {
-        if (!node) return;
-        const fillNode = node.querySelector<HTMLElement>("[data-step-fill]");
-        const pctNode = node.querySelector<HTMLElement>("[data-step-percent]");
-        const write = () => {
-          const nowMs = Date.now();
-          const serverNow =
-            environmentId === undefined ? nowMs : toServerClock(environmentId, nowMs);
-          const { stepPercents } = computePlanProgress({
-            steps,
-            runStartedAtMs,
-            nowMs: serverNow,
-          });
-          const pct = stepPercents.get(stepId) ?? 0;
-          if (fillNode) fillNode.style.width = `${Math.max(pct, 6)}%`;
-          if (pctNode) pctNode.textContent = `${pct}%`;
-        };
-        write();
-        return isLive ? secondTick.subscribe(write) : undefined;
-      }}
-    >
+    <div className="mt-1 flex items-center gap-2">
       <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
         <div
           data-step-fill
           className="h-full rounded-full bg-warning-foreground transition-[width] duration-300 ease-out motion-reduce:transition-none"
-          style={{ width: "6%" }}
+          style={{ width: `${fillWidth}%` }}
         />
       </div>
       <span
         data-step-percent
         className="w-7 shrink-0 text-right font-mono text-3xs text-muted-foreground tabular-nums"
       >
-        0%
+        {pct}%
       </span>
     </div>
+  );
+}
+
+function LiveEtaLabel({
+  steps,
+  fallbackEtaMs,
+  runStartedAtMs,
+  paused,
+  environmentId,
+}: {
+  readonly steps: DockSnapshot["plans"]["steps"];
+  readonly fallbackEtaMs: number | null;
+  readonly runStartedAtMs: number | null;
+  readonly paused: boolean;
+  readonly environmentId?: EnvironmentId | undefined;
+}) {
+  const messages = useMessages();
+  const formatEta = (etaMs: number | null) =>
+    etaMs === null ? DASH : formatWorkingDurationLabel(etaMs, messages);
+  const isLive = runStartedAtMs !== null && !paused && steps.some((step) => step.stage === "Now");
+  return (
+    <span
+      className="tabular-nums"
+      ref={tickTextContent((nowMs) => {
+        const serverNow = environmentId === undefined ? nowMs : toServerClock(environmentId, nowMs);
+        const { referenceEtaMs } = estimatePlanTiming({
+          steps,
+          runStartedAtMs,
+          nowMs: serverNow,
+          paused,
+        });
+        return formatEta(referenceEtaMs ?? fallbackEtaMs);
+      }, isLive)}
+    >
+      {formatEta(fallbackEtaMs)}
+    </span>
+  );
+}
+
+function ActiveStepDurationLabel({
+  step,
+  steps,
+  runStartedAtMs,
+  paused,
+  environmentId,
+}: {
+  readonly step: PlanStep;
+  readonly steps: DockSnapshot["plans"]["steps"];
+  readonly runStartedAtMs: number | null;
+  readonly paused: boolean;
+  readonly environmentId?: EnvironmentId | undefined;
+}) {
+  const messages = useMessages();
+  const rawAnchor = step.durationAnchorAt === null ? null : Date.parse(step.durationAnchorAt);
+  const anchorMs = rawAnchor !== null && Number.isFinite(rawAnchor) ? rawAnchor : null;
+  const isLive = runStartedAtMs !== null && !paused && anchorMs !== null;
+  const formatBadge = (elapsedMs: number, estimatedMs: number | null) => {
+    const elapsedText = formatWorkingDurationLabel(elapsedMs, messages);
+    return estimatedMs !== null && estimatedMs > 0
+      ? `${elapsedText} / ~${formatWorkingDurationLabel(estimatedMs, messages)}`
+      : elapsedText;
+  };
+  return (
+    <span
+      className="tabular-nums"
+      ref={tickTextContent((nowMs) => {
+        const serverNow = environmentId === undefined ? nowMs : toServerClock(environmentId, nowMs);
+        const elapsedMs =
+          anchorMs === null ? (step.activeElapsedMs ?? 0) : Math.max(0, serverNow - anchorMs);
+        const estimatedMs =
+          estimatePlanTiming({
+            steps,
+            runStartedAtMs,
+            nowMs: serverNow,
+            paused,
+          }).stepEstimatedMs.get(step.id) ?? step.estimatedDurationMs;
+        return formatBadge(elapsedMs, estimatedMs);
+      }, isLive)}
+    >
+      {formatBadge(step.activeElapsedMs ?? 0, step.estimatedDurationMs)}
+    </span>
+  );
+}
+
+function PendingStepEstimateLabel({
+  step,
+  steps,
+  runStartedAtMs,
+  paused,
+  environmentId,
+  fallback,
+}: {
+  readonly step: PlanStep;
+  readonly steps: DockSnapshot["plans"]["steps"];
+  readonly runStartedAtMs: number | null;
+  readonly paused: boolean;
+  readonly environmentId?: EnvironmentId | undefined;
+  readonly fallback: string;
+}) {
+  const messages = useMessages();
+  const formatEst = (estimatedMs: number | null) =>
+    estimatedMs !== null && estimatedMs > 0
+      ? `~${formatWorkingDurationLabel(estimatedMs, messages)}`
+      : fallback;
+  const isLive =
+    runStartedAtMs !== null && !paused && steps.some((candidate) => candidate.stage === "Now");
+  return (
+    <span
+      className="tabular-nums"
+      ref={tickTextContent((nowMs) => {
+        const serverNow = environmentId === undefined ? nowMs : toServerClock(environmentId, nowMs);
+        const estimatedMs =
+          estimatePlanTiming({
+            steps,
+            runStartedAtMs,
+            nowMs: serverNow,
+            paused,
+          }).stepEstimatedMs.get(step.id) ?? step.estimatedDurationMs;
+        return formatEst(estimatedMs);
+      }, isLive)}
+    >
+      {formatEst(step.estimatedDurationMs)}
+    </span>
   );
 }
 
@@ -379,16 +419,6 @@ function formatLiveAction(
   }
 }
 
-function carriedPlanLabel(
-  plans: DockSnapshot["plans"],
-  copy: ReturnType<typeof useDockCopy>,
-): string | null {
-  if (plans.todoScope !== "carried") return null;
-  return plans.todoRunOrdinal !== null
-    ? copy.todoCarried.replace("{count}", number(plans.todoRunOrdinal))
-    : copy.todoCarriedGeneric;
-}
-
 function SessionGlanceBar() {
   const copy = useDockCopy();
   const { snapshot, runOrdinal, runStartedAtMs, readLiveTps } = useDockRuntime();
@@ -425,8 +455,8 @@ function SessionGlanceBar() {
     metrics.includes("output-rate") &&
     runStartedAtMs !== null &&
     (liveOutput !== null || readLiveTps !== undefined);
-  const showSettledRate =
-    metrics.includes("output-rate") && !showLiveRate && run?.turnAvgOutputTps != null;
+  const settledRate = run?.activeOutputTps ?? run?.turnAvgOutputTps ?? null;
+  const showSettledRate = metrics.includes("output-rate") && !showLiveRate && settledRate !== null;
   const showTokens = metrics.includes("tokens") && totalTokens !== null;
   const showCache = metrics.includes("cache") && run?.cacheHitRate != null;
   const contextWindow = snapshot.contextWindow;
@@ -490,18 +520,17 @@ function SessionGlanceBar() {
             separated={hasProgress || showClock}
             progress={liveOutput}
             readLiveTps={readLiveTps}
-            environmentId={snapshot.threadMeta.environmentId}
             template={copy.footerLiveRate}
-            ariaLabel={`${copy.avgTps} · ${copy.liveRateHelp}`}
+            ariaLabel={`${copy.activeTps} · ${copy.liveRateHelp}`}
           />
         )}
         {showSettledRate && (
           <span
             className="hidden shrink-0 @xs/dock-bar:inline-flex"
-            aria-label={`${copy.avgTps} · ${copy.wallTime}`}
+            aria-label={`${copy.activeTps} · ${run?.activeOutputTps != null ? copy.activeTime : copy.wallTime}`}
           >
             <FooterMetric separated={hasProgress || showClock}>
-              {copy.footerRate.replace("{value}", number(run.turnAvgOutputTps))}
+              {copy.footerRate.replace("{value}", number(settledRate))}
             </FooterMetric>
           </span>
         )}
@@ -638,23 +667,52 @@ function Measure({ name, children }: { readonly name: string; readonly children:
 
 function TodoStep({
   item,
+  steps,
   index,
-  live,
+  runStartedAtMs,
+  paused,
+  environmentId,
 }: {
   readonly item: PlanStep;
+  readonly steps: DockSnapshot["plans"]["steps"];
   readonly index: number;
-  readonly live: boolean;
+  readonly runStartedAtMs: number | null;
+  readonly paused: boolean;
+  readonly environmentId?: EnvironmentId | undefined;
 }) {
-  const anchor = item.durationAnchorAt === null ? null : Date.parse(item.durationAnchorAt);
-  const ticking =
-    item.stage === "Now" && live && anchor != null && Number.isFinite(anchor) ? anchor : null;
+  const hasActiveTiming =
+    item.stage === "Now" &&
+    (item.durationAnchorAt !== null ||
+      item.activeElapsedMs !== null ||
+      item.estimatedDurationMs !== null);
   return (
     <li className="flex items-baseline gap-2.5 rounded-md py-1.5 text-xs">
       <span className="w-3 shrink-0 font-mono text-3xs text-muted-foreground">{index + 1}</span>
       <span className="min-w-0 flex-1 wrap-break-word">{item.label}</span>
       <span className="shrink-0 font-mono text-2xs text-muted-foreground">
-        {item.durationMs !== null || ticking !== null ? (
-          <ClockLabel elapsedMs={item.durationMs ?? 0} startedAtMs={ticking} />
+        {item.stage === "Done" ? (
+          item.durationMs !== null ? (
+            <ClockLabel elapsedMs={item.durationMs} startedAtMs={null} />
+          ) : (
+            DASH
+          )
+        ) : hasActiveTiming ? (
+          <ActiveStepDurationLabel
+            step={item}
+            steps={steps}
+            runStartedAtMs={runStartedAtMs}
+            paused={paused}
+            environmentId={environmentId}
+          />
+        ) : item.stage === "Next" ? (
+          <PendingStepEstimateLabel
+            step={item}
+            steps={steps}
+            runStartedAtMs={runStartedAtMs}
+            paused={paused}
+            environmentId={environmentId}
+            fallback={DASH}
+          />
         ) : (
           DASH
         )}
@@ -679,8 +737,8 @@ export function ComposerTaskPlan({
   const copy = useDockCopy();
   const { runStartedAtMs } = useDockRuntime();
   const { plans, activity } = snapshot;
+  const paused = activity.phase === "needs_you";
   const liveLabel = formatLiveAction(activity.liveAction, copy);
-  const carriedLabel = carriedPlanLabel(plans, copy);
   const showActivityStrip =
     liveLabel !== null || activity.files.length > 0 || activity.toolCount > 0;
   const activityStrip = showActivityStrip ? (
@@ -713,19 +771,24 @@ export function ComposerTaskPlan({
   return (
     <div className={pad}>
       {activityStrip}
-      <LivePlanProgress
+      <PlanProgressBar
         steps={plans.steps}
-        runStartedAtMs={runStartedAtMs}
-        environmentId={snapshot.threadMeta.environmentId}
+        overallPercent={plans.overallPercent}
         label={
           <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
             <span className="font-mono tabular-nums">
               {done}/{plans.steps.length}
             </span>
-            {carriedLabel !== null && <FooterMetric separated>{carriedLabel}</FooterMetric>}
             {plans.referenceEtaMs !== null && (
               <FooterMetric separated>
-                {copy.eta}: <ClockLabel elapsedMs={plans.referenceEtaMs} startedAtMs={null} />
+                {copy.eta}:{" "}
+                <LiveEtaLabel
+                  steps={plans.steps}
+                  fallbackEtaMs={plans.referenceEtaMs}
+                  runStartedAtMs={runStartedAtMs}
+                  paused={paused}
+                  environmentId={snapshot.threadMeta.environmentId}
+                />
               </FooterMetric>
             )}
           </span>
@@ -734,14 +797,11 @@ export function ComposerTaskPlan({
       <ol className="mt-2 space-y-0.5">
         {plans.steps.map((step) => {
           const { Icon, tone } = STEP_ICON[step.stage];
-          const anchor = step.durationAnchorAt === null ? null : Date.parse(step.durationAnchorAt);
-          const activeClock =
+          const hasActiveTiming =
             step.stage === "Now" &&
-            runStartedAtMs !== null &&
-            anchor !== null &&
-            Number.isFinite(anchor)
-              ? anchor
-              : null;
+            (step.durationAnchorAt !== null ||
+              step.activeElapsedMs !== null ||
+              step.estimatedDurationMs !== null);
           return (
             <li
               key={step.id}
@@ -772,20 +832,36 @@ export function ComposerTaskPlan({
                     {step.label}
                   </span>
                   <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-2xs text-muted-foreground">
-                    {step.durationMs !== null || activeClock !== null ? (
-                      <ClockLabel elapsedMs={step.durationMs ?? 0} startedAtMs={activeClock} />
+                    {step.stage === "Done" ? (
+                      step.durationMs !== null ? (
+                        <ClockLabel elapsedMs={step.durationMs} startedAtMs={null} />
+                      ) : (
+                        copy.Done
+                      )
+                    ) : hasActiveTiming ? (
+                      <ActiveStepDurationLabel
+                        step={step}
+                        steps={plans.steps}
+                        runStartedAtMs={runStartedAtMs}
+                        paused={paused}
+                        environmentId={snapshot.threadMeta.environmentId}
+                      />
+                    ) : step.stage === "Next" ? (
+                      <PendingStepEstimateLabel
+                        step={step}
+                        steps={plans.steps}
+                        runStartedAtMs={runStartedAtMs}
+                        paused={paused}
+                        environmentId={snapshot.threadMeta.environmentId}
+                        fallback={copy.Next}
+                      />
                     ) : (
                       copy[step.stage]
                     )}
                   </span>
                 </div>
                 {step.stage === "Now" && (
-                  <ActiveStepProgress
-                    steps={plans.steps}
-                    stepId={step.id}
-                    runStartedAtMs={runStartedAtMs}
-                    environmentId={snapshot.threadMeta.environmentId}
-                  />
+                  <ActiveStepProgress progressPercent={step.progressPercent} />
                 )}
               </div>
             </li>
@@ -806,11 +882,11 @@ function TodoPanel({
   const copy = useDockCopy();
   const { cwd, runStartedAtMs } = useDockRuntime();
   const { plans, activity, threadMeta } = snapshot;
+  const paused = activity.phase === "needs_you";
   const done = plans.steps.filter((step) => step.stage === "Done").length;
   const referenceEtaMs = plans.referenceEtaMs;
   const proposed = plans.proposedPlan;
   const liveLabel = formatLiveAction(activity.liveAction, copy);
-  const carriedLabel = carriedPlanLabel(plans, copy);
   return (
     <div className="space-y-2.5">
       <Card title={copy.plan}>
@@ -827,13 +903,9 @@ function TodoPanel({
         )}
         {plans.todoStatus === "provided" ? (
           <>
-            {carriedLabel !== null && (
-              <p className="text-2xs text-muted-foreground">{carriedLabel}</p>
-            )}
-            <LivePlanProgress
+            <PlanProgressBar
               steps={plans.steps}
-              runStartedAtMs={runStartedAtMs}
-              environmentId={threadMeta.environmentId}
+              overallPercent={plans.overallPercent}
               label={
                 <span className="font-mono tabular-nums">
                   {done}/{plans.steps.length}
@@ -845,7 +917,13 @@ function TodoPanel({
               {referenceEtaMs === null ? (
                 DASH
               ) : (
-                <ClockLabel elapsedMs={referenceEtaMs} startedAtMs={null} />
+                <LiveEtaLabel
+                  steps={plans.steps}
+                  fallbackEtaMs={referenceEtaMs}
+                  runStartedAtMs={runStartedAtMs}
+                  paused={paused}
+                  environmentId={threadMeta.environmentId}
+                />
               )}
             </p>
           </>
@@ -872,8 +950,11 @@ function TodoPanel({
                       <TodoStep
                         key={item.id}
                         item={item}
+                        steps={plans.steps}
                         index={index}
-                        live={runStartedAtMs !== null}
+                        runStartedAtMs={runStartedAtMs}
+                        paused={paused}
+                        environmentId={threadMeta.environmentId}
                       />
                     ))}
                   </ol>
@@ -1185,28 +1266,27 @@ function TelemetryPanel({
       <Card title={copy["output-rate"]}>
         <div className="grid grid-cols-2 gap-2" aria-description={copy.rateHelp}>
           <Rate
-            name={copy.avgTps}
+            name={copy.activeTps}
             scope={
               runStartedAtMs !== null &&
               (snapshot.liveOutputProgress !== null || readLiveTps !== undefined)
                 ? copy.liveRateHelp
-                : copy.wallTime
+                : copy.activeTime
             }
-            value={run?.turnAvgOutputTps}
+            value={run?.activeOutputTps}
             live={
               runStartedAtMs !== null &&
               (snapshot.liveOutputProgress !== null || readLiveTps !== undefined) ? (
                 <LiveRateLabel
                   progress={snapshot.liveOutputProgress}
                   readLiveTps={readLiveTps}
-                  environmentId={snapshot.threadMeta.environmentId}
                   template="~{value}"
-                  fallback={number(run?.turnAvgOutputTps)}
+                  fallback={number(run?.activeOutputTps)}
                 />
               ) : null
             }
           />
-          <Rate name={copy.activeTps} scope={copy.activeTime} value={run?.activeOutputTps} />
+          <Rate name={copy.avgTps} scope={copy.wallTime} value={run?.turnAvgOutputTps} />
         </div>
       </Card>
       <SessionGlanceCharts runs={snapshot.recentRuns} />

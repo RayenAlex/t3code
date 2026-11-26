@@ -1,5 +1,6 @@
 import { EnvironmentId, ProviderInstanceId, type MagpieGlmQuota } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
+import stylesheet from "~/index.css?inline";
 
 import { render } from "../../../test/render";
 import { GlmQuotaSelection } from "./RightRailGlmQuotaSlot";
@@ -124,6 +125,85 @@ it("supports an explicit alias but hides expired quota without a new request", a
   await expect.element(screen.getByText("77% left")).toBeVisible();
   expect(read).toHaveBeenCalledTimes(4);
   expect(read.mock.calls.at(-1)?.[0]).toEqual({ environmentId, input: labeledGlmModel });
+});
+
+it("shows a Magpie balance without substituting a progress bar", async () => {
+  const read = vi.fn<Parameters<typeof GlmQuotaSelection>[0]["read"]>().mockResolvedValue({
+    ...snapshot,
+    windows: [],
+    balance: "≈¥88.00",
+  });
+  await using screen = await render(
+    <GlmQuotaSelection
+      environmentId={environmentId}
+      binding={undefined}
+      gptBinding={binding}
+      model={{ instanceId, model: "gpt-6.1" }}
+      now={now}
+      read={read}
+    />,
+  );
+  const card = screen.getByRole("region", { name: "GPT quota" });
+  await expect.element(card.getByText("Balance reported by Magpie")).toBeVisible();
+  await expect.element(card.getByText("≈¥88.00")).toBeVisible();
+  await expect.element(card.getByRole("progressbar")).not.toBeInTheDocument();
+});
+
+it("shows remaining quota from Magpie usage percentages and keeps non-percent metrics as text", async () => {
+  const style = document.createElement("style");
+  style.textContent = stylesheet;
+  document.head.append(style);
+  using _style = { [Symbol.dispose]: () => style.remove() };
+  const read = vi.fn<Parameters<typeof GlmQuotaSelection>[0]["read"]>().mockResolvedValue({
+    ...snapshot,
+    windows: [],
+    balance: "5h 40% · 周 11.7% · 账号 3.00",
+    balanceParts: [
+      { label: "5h", text: "40%", percent: 40 },
+      { label: "周", text: "11.7%", percent: 11.7 },
+      { label: "账号", text: "3.00" },
+    ],
+  });
+  await using screen = await render(
+    <div style={{ width: 220 }}>
+      <GlmQuotaSelection
+        environmentId={environmentId}
+        binding={undefined}
+        gptBinding={binding}
+        model={{ instanceId, model: "gpt-6.1" }}
+        now={now}
+        read={read}
+      />
+    </div>,
+  );
+  const card = screen.getByRole("region", { name: "GPT quota" });
+  await expect.element(card.getByText("60%", { exact: true })).toBeVisible();
+  const element = card.element();
+  expect(
+    Array.from(element.querySelectorAll("dl > div"), (tile) => [
+      tile.querySelector("dt")?.textContent,
+      tile.querySelector("dd")?.textContent,
+    ]),
+  ).toEqual([
+    ["5h", "60%"],
+    ["周", "88.3%"],
+    ["账号", "3.00"],
+  ]);
+  expect(element.scrollWidth).toBeLessThanOrEqual(element.clientWidth);
+  for (const [name, percent] of [
+    ["5h", 60],
+    ["周", 88.3],
+  ] as const) {
+    const progress = card.getByRole("progressbar", { name });
+    await expect.element(progress).toHaveAttribute("aria-valuenow", String(percent));
+    const track = progress.element();
+    const width = track.getBoundingClientRect().width;
+    expect(width).toBeGreaterThan(0);
+    expect(track.firstElementChild!.getBoundingClientRect().width / width).toBeCloseTo(
+      percent / 100,
+    );
+  }
+  await expect.element(card.getByRole("progressbar", { name: "账号" })).not.toBeInTheDocument();
 });
 
 it("shows a separate GPT title and re-reads when changing from GLM to GPT", async () => {

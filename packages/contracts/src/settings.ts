@@ -961,6 +961,7 @@ export const MagpieGlmQuotaSettings = Schema.Struct({
   gpt: Schema.optionalKey(
     Schema.Struct({
       enabled: Schema.Boolean,
+      provider: Schema.optionalKey(TrimmedNonEmptyString),
       user: TrimmedString,
       modelAliases: Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
     }),

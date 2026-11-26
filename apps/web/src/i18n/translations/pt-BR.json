@@ -12812,7 +12812,8 @@
   "1172ed54977ca854": "Cota do Magpie",
   "e76cd3a269d01fc2": "Mostra a cota de GLM ou GPT armazenada no cache do Magpie. Salvar não altera o roteamento dos modelos.",
   "50da9833accd7700": "Mostrar cota do GPT",
-  "ed504552e0620810": "A cota do GPT é exibida para instâncias conectadas a este gateway. Deixe o nome da conta em branco apenas se o Magpie tiver uma única assinatura do Codex.",
-  "cecd8437a8dc565f": "Nome da conta do Codex (opcional)",
-  "25abe03e3a72e677": "Aliases de modelos GPT (separados por vírgulas)"
+  "25abe03e3a72e677": "Aliases de modelos GPT (separados por vírgulas)",
+  "7a23600f76153af8": "A cota GPT é lida no cartão do provedor selecionado neste gateway Magpie. Informe o ID do provedor, como cpa, ou deixe em branco para usar a assinatura integrada do Codex.",
+  "2a1fd9bb151e2b28": "ID do provedor de GPT no Magpie (opcional)",
+  "531062b4f6530db5": "Nome da conta GPT no Magpie (opcional)"
 }

@@ -145,7 +145,7 @@ export function SessionGlanceCharts({ runs }: { readonly runs: readonly RunTelem
     maximumFractionDigits: 1,
   });
   const format = (value: number) => number.format(value);
-  const rates = newest.map((run) => run.turnAvgOutputTps);
+  const rates = newest.map((run) => run.activeOutputTps ?? run.turnAvgOutputTps);
   const hit = newest.map((run) => run.cacheHitRate);
   const tokenSeries = [
     {
@@ -176,7 +176,11 @@ export function SessionGlanceCharts({ runs }: { readonly runs: readonly RunTelem
     ),
   );
   const hasHistory = newest.some(
-    (run) => run.tokenUsage || run.turnAvgOutputTps !== null || run.cacheHitRate !== null,
+    (run) =>
+      run.tokenUsage ||
+      run.activeOutputTps !== null ||
+      run.turnAvgOutputTps !== null ||
+      run.cacheHitRate !== null,
   );
   return (
     <section
@@ -202,9 +206,9 @@ export function SessionGlanceCharts({ runs }: { readonly runs: readonly RunTelem
           />
           <Plot
             runIds={newest.map((run) => run.runId)}
-            rows={[{ label: copy.avgTps, values: rates, color: COLORS[0]! }]}
+            rows={[{ label: copy.activeTps, values: rates, color: COLORS[0]! }]}
             maximum={Math.ceil(Math.max(1, ...rates.map((value) => value ?? 0)))}
-            label={copy.avgTps}
+            label={copy.activeTps}
             format={format}
           />
           <Plot

@@ -12819,7 +12819,8 @@
   "1172ed54977ca854": "Magpie-kvot",
   "e76cd3a269d01fc2": "Visar GLM- eller GPT-kvoten som cachats av Magpie. Sparandet ändrar inte modellernas dirigering.",
   "50da9833accd7700": "Visa GPT-kvot",
-  "ed504552e0620810": "GPT-kvoten visas för instanser som är anslutna till den här gatewayen. Lämna kontonamnet tomt bara om Magpie har en enda Codex-prenumeration.",
-  "cecd8437a8dc565f": "Codex-kontonamn (valfritt)",
-  "25abe03e3a72e677": "GPT-modellalias (kommaseparerade)"
+  "25abe03e3a72e677": "GPT-modellalias (kommaseparerade)",
+  "7a23600f76153af8": "GPT-kvoten läses från den valda leverantörens kort i denna Magpie-gateway. Ange leverantörens ID, till exempel cpa, eller lämna det tomt för den inbyggda Codex-prenumerationen.",
+  "2a1fd9bb151e2b28": "Magpie-leverantörs-ID för GPT (valfritt)",
+  "531062b4f6530db5": "GPT-kontonamn i Magpie (valfritt)"
 }

@@ -33,7 +33,11 @@ it("saves one gateway for both providers without putting a key in the instance e
     " daily , daily, weekly ",
   );
   await screen.getByRole("switch", { name: "Show GPT quota" }).click();
-  await userEvent.fill(screen.getByLabelText("Codex account name (optional)"), " work-codex ");
+  await userEvent.fill(screen.getByLabelText("Magpie GPT provider ID (optional)"), " cpa ");
+  await userEvent.fill(
+    screen.getByLabelText("GPT account name in Magpie (optional)"),
+    " work-codex ",
+  );
   await userEvent.fill(
     screen.getByLabelText("GPT model aliases (comma-separated)"),
     " daily-gpt, daily-gpt ",
@@ -49,7 +53,7 @@ it("saves one gateway for both providers without putting a key in the instance e
         user: "",
         kind: "plan",
         modelAliases: ["daily", "weekly"],
-        gpt: { enabled: true, user: "work-codex", modelAliases: ["daily-gpt"] },
+        gpt: { enabled: true, provider: "cpa", user: "work-codex", modelAliases: ["daily-gpt"] },
         gatewayKey: "fake-test-key",
         revision: expect.any(String),
       },

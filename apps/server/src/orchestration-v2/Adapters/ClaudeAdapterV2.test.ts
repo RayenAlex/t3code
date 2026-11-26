@@ -13112,52 +13112,53 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     }),
   );
 
-  it.effect(
-    "projects TaskCreate and TaskUpdate into one plan per turn and supersedes it later",
-    () =>
-      Effect.gen(function* () {
-        const harness = yield* makeTaskToolHarness;
-        yield* harness.startTurn();
-        yield* harness.call(createTask("1", "Inspect"));
-        yield* harness.call(createTask("2", "Implement"));
-        yield* harness.call(updateTask({ taskId: "1", status: "in_progress" }));
-        yield* harness.finishTurn();
+  it.effect("projects only tasks created or explicitly updated in the current turn", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeTaskToolHarness;
+      yield* harness.startTurn();
+      yield* harness.call(createTask("1", "Inspect"));
+      yield* harness.call(createTask("2", "Implement"));
+      yield* harness.call(updateTask({ taskId: "1", status: "in_progress" }));
+      yield* harness.finishTurn();
 
-        const firstTurnPlans = harness.plans();
-        assert.lengthOf(firstTurnPlans, 3);
-        assert.equal(new Set(firstTurnPlans.map((plan) => plan.id)).size, 1);
-        assert.deepEqual(firstTurnPlans.at(-1)?.steps, [
-          { id: "task-1", text: "Inspect", status: "running" },
-          { id: "task-2", text: "Implement", status: "pending" },
-        ]);
-        const firstPlan = firstTurnPlans.at(-1)!;
+      const firstTurnPlans = harness.plans();
+      assert.lengthOf(firstTurnPlans, 3);
+      assert.equal(new Set(firstTurnPlans.map((plan) => plan.id)).size, 1);
+      assert.deepEqual(firstTurnPlans.at(-1)?.steps, [
+        { id: "task-1", text: "Inspect", status: "running" },
+        { id: "task-2", text: "Implement", status: "pending" },
+      ]);
+      const firstPlan = firstTurnPlans.at(-1)!;
 
-        yield* harness.startTurn();
-        yield* harness.call(updateTask({ taskId: "1", status: "completed", subject: "Inspected" }));
-        yield* harness.finishTurn();
+      yield* harness.startTurn();
+      yield* harness.call(createTask("3", "Fresh"));
+      yield* harness.call(updateTask({ taskId: "1", status: "completed", subject: "Inspected" }));
+      yield* harness.finishTurn();
 
-        const laterPlans = harness.plans().slice(firstTurnPlans.length);
-        assert.lengthOf(laterPlans, 2);
-        assert.equal(laterPlans[0]?.id, firstPlan.id);
-        assert.equal(laterPlans[0]?.status, "superseded");
-        const newPlan = laterPlans[1]!;
-        assert.notEqual(newPlan.id, firstPlan.id);
-        assert.notEqual(newPlan.runId, firstPlan.runId);
-        assert.deepEqual(newPlan.steps, [
-          { id: "task-1", text: "Inspected", status: "completed" },
-          { id: "task-2", text: "Implement", status: "pending" },
-        ]);
-      }).pipe(
-        Effect.scoped,
-        Effect.provide(
-          Layer.mergeAll(
-            IdAllocator.layer,
-            McpProviderSessions.layer,
-            NodeServices.layer,
-            NodeCrypto.layer,
-          ),
+      const laterPlans = harness.plans().slice(firstTurnPlans.length);
+      assert.lengthOf(laterPlans, 3);
+      assert.equal(laterPlans[0]?.id, firstPlan.id);
+      assert.equal(laterPlans[0]?.status, "superseded");
+      const newPlan = laterPlans[1]!;
+      assert.notEqual(newPlan.id, firstPlan.id);
+      assert.notEqual(newPlan.runId, firstPlan.runId);
+      assert.deepEqual(newPlan.steps, [{ id: "task-3", text: "Fresh", status: "pending" }]);
+      assert.equal(laterPlans[2]?.id, newPlan.id);
+      assert.deepEqual(laterPlans[2]?.steps, [
+        { id: "task-1", text: "Inspected", status: "completed" },
+        { id: "task-3", text: "Fresh", status: "pending" },
+      ]);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
         ),
       ),
+    ),
   );
 
   it.effect("removes deleted tasks without resurrecting them on later updates or turns", () =>
@@ -13236,12 +13237,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         assert.equal((yield* harness.finishTurn()).status, "completed");
         assert.deepEqual(
           harness.plans().map((plan) => plan.steps),
-          [
-            [
-              { id: "task-1", text: "Inspect", status: "completed" },
-              { id: "task-2", text: "Implement", status },
-            ],
-          ],
+          [[{ id: "task-2", text: "Implement", status }]],
         );
       }).pipe(
         Effect.scoped,
@@ -13287,7 +13283,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       ),
   );
 
-  it.effect("replaces task state with TaskList, including an empty list", () =>
+  it.effect("reconciles TaskList without adding tasks until explicitly updated", () =>
     Effect.gen(function* () {
       const harness = yield* makeTaskToolHarness;
       yield* harness.startTurn();
@@ -13310,16 +13306,8 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       yield* harness.finishTurn();
       const plans = harness.plans();
       assert.lengthOf(plans, 4);
-      assert.deepEqual(plans[1]?.steps, [
-        { id: "task-2", text: "Queued", status: "pending" },
-        { id: "task-3", text: "Working", status: "running" },
-        { id: "task-4", text: "Done", status: "completed" },
-      ]);
-      assert.deepEqual(plans[2]?.steps, [
-        { id: "task-2", text: "Queued", status: "running" },
-        { id: "task-3", text: "Working", status: "running" },
-        { id: "task-4", text: "Done", status: "completed" },
-      ]);
+      assert.deepEqual(plans[1]?.steps, []);
+      assert.deepEqual(plans[2]?.steps, [{ id: "task-2", text: "Queued", status: "running" }]);
       assert.deepEqual(plans[3]?.steps, []);
     }).pipe(
       Effect.scoped,

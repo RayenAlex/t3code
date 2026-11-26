@@ -5464,6 +5464,7 @@ interface ActiveClaudeTurnContext {
   readonly startedAt: DateTime.Utc;
   readonly itemOrdinals: Map<string, number>;
   readonly planIds: Map<string, OrchestrationV2PlanArtifact["id"]>;
+  visibleTaskIds: ReadonlySet<string>;
   readonly assistant: {
     fallbackText: string;
     // Result-only replies of steered segments that ended before the current one.
@@ -5916,7 +5917,7 @@ function applyClaudeTaskTool(
   toolName: string,
   input: unknown,
   result: unknown,
-): ClaudeTaskList | undefined {
+): { readonly tasks: ClaudeTaskList; readonly touchedTaskId?: string } | undefined {
   if (toolName === "TaskList") {
     const listed = claudeTaskField(result, "tasks");
     if (!Array.isArray(listed)) return undefined;
@@ -5929,7 +5930,7 @@ function applyClaudeTaskTool(
         next.set(id, { text, status });
       }
     }
-    return next.size === 0 && tasks.size === 0 ? undefined : next;
+    return next.size === 0 && tasks.size === 0 ? undefined : { tasks: next };
   }
   if (toolName === "TaskCreate") {
     const created = claudeTaskField(result, "task");
@@ -5940,7 +5941,7 @@ function applyClaudeTaskTool(
       fromText?.subject ??
       claudeTaskString(input, "subject");
     if (id === undefined || text === undefined) return undefined;
-    return new Map(tasks).set(id, { text, status: "pending" });
+    return { tasks: new Map(tasks).set(id, { text, status: "pending" }), touchedTaskId: id };
   }
   if (
     toolName !== "TaskUpdate" ||
@@ -5956,12 +5957,12 @@ function applyClaudeTaskTool(
   if (nativeStatus === "deleted") {
     const next = new Map(tasks);
     next.delete(id);
-    return next;
+    return { tasks: next, touchedTaskId: id };
   }
   const text = claudeTaskString(input, "subject") ?? task.text;
   const status = claudeTaskStatus(nativeStatus) ?? task.status;
-  if (text === task.text && status === task.status) return undefined;
-  return new Map(tasks).set(id, { text, status });
+  const updated = text !== task.text || status !== task.status;
+  return { tasks: updated ? new Map(tasks).set(id, { text, status }) : tasks, touchedTaskId: id };
 }
 
 // Subagent results carry no structured `tool_use_result`, only the text
@@ -6020,8 +6021,13 @@ const readClaudeTaskList = Effect.fnUntraced(
   Effect.orElseSucceed((): ClaudeTaskList | undefined => undefined),
 );
 
-function claudeTaskSteps(tasks: ClaudeTaskList): ReadonlyArray<OrchestrationV2PlanStep> {
-  return [...tasks].map(([id, task]) => ({ id: `task-${id}`, ...task }));
+function claudeTaskSteps(
+  tasks: ClaudeTaskList,
+  visibleIds: ReadonlySet<string>,
+): ReadonlyArray<OrchestrationV2PlanStep> {
+  return [...tasks].flatMap(([id, task]) =>
+    visibleIds.has(id) ? [{ id: `task-${id}`, ...task }] : [],
+  );
 }
 
 function claudeProposedPlan(input: unknown): string | null {
@@ -12392,23 +12398,38 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                       Effect.provideService(Path.Path, path),
                     )
                   : undefined;
-              const taskList =
-                applyClaudeTaskTool(
-                  knownTaskList ?? storedTaskList ?? new Map(),
-                  toolCall.toolName,
-                  claudeNativeToolInputValue(toolCall.input),
-                  outputValue,
-                ) ?? storedTaskList;
+              const toolInput = claudeNativeToolInputValue(toolCall.input);
+              const update = applyClaudeTaskTool(
+                knownTaskList ?? storedTaskList ?? new Map(),
+                toolCall.toolName,
+                toolInput,
+                outputValue,
+              );
+              const taskList = update?.tasks ?? storedTaskList;
               yield* Ref.set(
                 taskListsByNativeThread,
                 new Map(taskLists).set(liveQuery.nativeThreadId, taskList ?? knownTaskList),
               );
-              if (taskList !== undefined) {
+              const touched = update?.touchedTaskId;
+              const previouslyVisible = context.visibleTaskIds;
+              if (
+                taskList !== undefined &&
+                (touched !== undefined ||
+                  previouslyVisible.size > 0 ||
+                  (toolCall.toolName === "TaskUpdate" &&
+                    claudeTaskField(toolInput, "status") === "deleted"))
+              ) {
+                // Reading the session-wide list does not opt its old tasks into this turn.
+                context.visibleTaskIds = new Set(
+                  [...previouslyVisible, ...(touched === undefined ? [] : [touched])].filter((id) =>
+                    taskList.has(id),
+                  ),
+                );
                 yield* emitClaudePlanProjection({
                   context,
                   nativeItemId: `claude-tasks:${context.providerTurnId}`,
                   kind: "todo_list",
-                  steps: claudeTaskSteps(taskList),
+                  steps: claudeTaskSteps(taskList, context.visibleTaskIds),
                 }).pipe(Effect.orDie);
               }
             }
@@ -14181,6 +14202,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               startedAt,
               itemOrdinals: new Map(),
               planIds: new Map(),
+              visibleTaskIds: new Set(),
               assistant: {
                 fallbackText: "",
                 earlierFallbackText: "",

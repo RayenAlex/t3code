@@ -280,7 +280,7 @@ it.layer(NodeServices.layer)("Magpie GLM quota", (it) => {
           ],
           routing: CARD.routing,
         };
-        let cards = [
+        let cards: readonly unknown[] = [
           CARD,
           codex,
           { ...codex, user: "other", alias: "Other Codex" },
@@ -340,6 +340,69 @@ it.layer(NodeServices.layer)("Magpie GLM quota", (it) => {
           cards = [{ ...codex, readAt: "2026-11-25T11:00:00Z" }];
           expect(yield* read("gpt-6.1")).toEqual({ status: "unconfirmed" });
           cards = [{ ...codex, from: "remote" }];
+          expect(yield* read("gpt-6.1")).toEqual({ status: "noCard" });
+
+          const cpaCard = {
+            provider: "cpa",
+            kind: "balance",
+            user: "work",
+            alias: "Work CPA",
+            readAt: READ_AT,
+            windows: [],
+            balance: "≈¥88.00",
+          };
+          cards = [CARD, codex, { ...cpaCard, user: "other", alias: "Other CPA" }, cpaCard];
+          yield* settings.updateSettings({
+            magpieGlmQuota: { ...saved, gpt: { ...gpt, provider: "cpa", user: "Work CPA" } },
+          });
+          expect(yield* read("gpt-6.1")).toEqual({
+            status: "ready",
+            checkedAt: READ_AT,
+            expiresAt: "2026-11-25T12:13:00.000Z",
+            windows: [],
+            balance: "≈¥88.00",
+          });
+          expect(calls.at(-1)).toEqual([
+            `${ORIGIN}/v1/magpie/quotas/cards`,
+            "Bearer test-gpt-gateway-key",
+          ]);
+          cards = [
+            {
+              ...cpaCard,
+              balance: "5h 63% · 周 94% · 账号 1.00",
+              balanceParts: [
+                { label: "5h", text: "63%", percent: 63 },
+                { label: "周", text: "94%", percent: 94 },
+                { label: "账号", text: "1.00" },
+                { label: "无效百分比", text: "125%", percent: 125 },
+              ],
+            },
+          ];
+          expect(yield* read("gpt-6.1")).toMatchObject({
+            status: "ready",
+            windows: [],
+            balanceParts: [
+              { label: "5h", text: "63%", percent: 63 },
+              { label: "周", text: "94%", percent: 94 },
+              { label: "账号", text: "1.00" },
+              { label: "无效百分比", text: "125%" },
+            ],
+          });
+          cards = [
+            {
+              ...cpaCard,
+              balance: "",
+              windows: [{ name: "wallet", used: 0, balance: 0, unit: "USD" }],
+            },
+          ];
+          expect(yield* read("gpt-6.1")).toMatchObject({
+            status: "ready",
+            windows: [],
+            balance: "0 USD",
+          });
+          cards = [{ ...cpaCard, readAt: "2026-11-25T11:00:00Z" }];
+          expect(yield* read("gpt-6.1")).toEqual({ status: "unconfirmed" });
+          cards = [codex];
           expect(yield* read("gpt-6.1")).toEqual({ status: "noCard" });
         }).pipe(
           Effect.provide(

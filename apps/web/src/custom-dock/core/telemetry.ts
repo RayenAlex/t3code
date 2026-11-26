@@ -6,7 +6,14 @@ import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import type { OrchestrationV2Run, TurnTokenUsage } from "@t3tools/contracts";
 
 import type { ContextWindowMetrics, RunSummary, RunTelemetry } from "../host/types";
-import { isHumanRequest, isTerminalRun, isToolItem, timestampMs } from "./runStructure";
+import {
+  collectRunTimingIntervals,
+  estimateToolCallInputTokens,
+  intervalUnionMs,
+  isTerminalRun,
+  subtractIntervals,
+  timestampMs,
+} from "./runStructure";
 
 export { deriveActivitySnapshot } from "./plans";
 
@@ -40,19 +47,6 @@ export function deriveContextWindowMetrics(
     remainingTokens: maxTokens === null ? null : snapshot.remainingTokens,
     autoCompactThreshold: maxTokens === null ? null : (snapshot.autoCompactThreshold ?? null),
   };
-}
-
-type Interval = readonly [start: number, end: number];
-
-function intervalUnion(intervals: Interval[]): number {
-  let total = 0;
-  let previousEnd = -Infinity;
-  for (const [start, end] of intervals.sort((a, b) => a[0] - b[0])) {
-    if (end <= previousEnd) continue;
-    total += end - Math.max(start, previousEnd);
-    previousEnd = end;
-  }
-  return total;
 }
 
 function sumReported(values: readonly (number | undefined)[], requireAll = false): number | null {
@@ -111,46 +105,24 @@ export function deriveRunTelemetry(
   const turns = (projection.providerTurns ?? []).filter(
     (turn) => turn.runAttemptId !== null && attemptIds.has(turn.runAttemptId),
   );
-  const nodeIds = new Set(attempts.map((attempt) => attempt.rootNodeId));
-  if (run.rootNodeId != null) nodeIds.add(run.rootNodeId);
-  for (const node of projection.nodes ?? []) if (node.runId === run.id) nodeIds.add(node.id);
-  const turnIds = new Set(turns.map((turn) => turn.id));
-  const waits: Interval[] = [];
-  const tools: Interval[] = [];
-  function addInterval(intervals: Interval[], from: number | null, to: number | null) {
-    if (from == null || to == null || workStart == null || end == null) return;
-    const start = Math.max(from, workStart);
-    const finish = Math.min(to, end);
-    if (finish > start) intervals.push([start, finish]);
+  const { waits, tools, blockingToolAndWait, streaming, effectiveNonModel } =
+    workStart != null && end != null && elapsedMs > 0
+      ? collectRunTimingIntervals({
+          projection,
+          runId: run.id,
+          rootNodeId: run.rootNodeId,
+          windowStart: workStart,
+          windowEnd: end,
+        })
+      : { waits: [], tools: [], blockingToolAndWait: [], streaming: [], effectiveNonModel: [] };
+  const waitingUserMs = intervalUnionMs(waits);
+  const toolMs = intervalUnionMs(tools);
+  const activeWorkMs = Math.max(0, elapsedMs - intervalUnionMs(effectiveNonModel));
+  const streamingMs = intervalUnionMs(subtractIntervals(streaming, blockingToolAndWait));
+  let estimatedToolInputTokens = 0;
+  for (const item of projection.turnItems ?? []) {
+    if (item.runId === run.id) estimatedToolInputTokens += estimateToolCallInputTokens(item);
   }
-  if (elapsedMs > 0) {
-    for (const request of projection.runtimeRequests ?? []) {
-      const owned =
-        request.providerTurnId != null
-          ? turnIds.has(request.providerTurnId)
-          : nodeIds.has(request.nodeId);
-      if (owned && isHumanRequest(request)) {
-        addInterval(
-          waits,
-          timestampMs(request.createdAt),
-          timestampMs(request.resolvedAt) ?? (request.status === "pending" ? end : null),
-        );
-      }
-    }
-    for (const item of projection.turnItems ?? []) {
-      if (item.runId === run.id && isToolItem(item) && !item.toolNonExecutionKind) {
-        addInterval(
-          tools,
-          timestampMs(item.startedAt),
-          timestampMs(item.completedAt) ??
-            (item.status === "running" || item.status === "waiting" ? end : null),
-        );
-      }
-    }
-  }
-  const waitingUserMs = intervalUnion(waits);
-  const toolMs = intervalUnion(tools);
-  const activeWorkMs = elapsedMs - waitingUserMs;
   const delivered = turns.filter(
     (turn) =>
       turn.promptDropped !== true &&
@@ -188,8 +160,21 @@ export function deriveRunTelemetry(
     rows.map((row) => row.outputTokens),
     true,
   );
-  const rate = (ms: number) =>
-    output != null && output > 0 && ms >= 200 ? (output * 1000) / ms : null;
+  const rate = (ms: number, tokens = output) =>
+    tokens != null && tokens > 0 && ms >= 200 ? (tokens * 1000) / ms : null;
+  const activeWorkTps = rate(activeWorkMs);
+  // Exclude TTFT/prefill wait when the run has measured model streaming spans; subtract tool-argument tokens generated outside those spans.
+  const streamTokens = output == null ? null : Math.max(0, output - estimatedToolInputTokens);
+  const streamDecodeTps =
+    streamingMs >= 200 && streamTokens != null && streamTokens >= 2
+      ? rate(streamingMs, streamTokens)
+      : null;
+  const activeOutputTps =
+    streamDecodeTps !== null
+      ? activeWorkTps !== null
+        ? Math.max(streamDecodeTps, activeWorkTps)
+        : streamDecodeTps
+      : activeWorkTps;
   const telemetry = {
     runId: run.id,
     status,
@@ -204,7 +189,7 @@ export function deriveRunTelemetry(
     isLocalCommandOnly,
     cacheHitRate,
     turnAvgOutputTps: rate(elapsedMs),
-    activeOutputTps: rate(activeWorkMs),
+    activeOutputTps,
   } satisfies RunTelemetry & { localCommand: boolean };
   return telemetry;
 }

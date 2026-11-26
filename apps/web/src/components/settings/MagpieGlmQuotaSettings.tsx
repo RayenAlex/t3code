@@ -42,6 +42,7 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
   const [subscription, setSubscription] = useState(config?.kind === "subscription");
   const [aliases, setAliases] = useState(config?.modelAliases.join(", ") ?? "");
   const [gptEnabled, setGptEnabled] = useState(config?.gpt?.enabled ?? false);
+  const [gptProvider, setGptProvider] = useState(config?.gpt?.provider ?? "");
   const [gptUser, setGptUser] = useState(config?.gpt?.user ?? "");
   const [gptAliases, setGptAliases] = useState(config?.gpt?.modelAliases.join(", ") ?? "");
   const [key, setKey] = useState("");
@@ -74,7 +75,12 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
               user: user.trim(),
               kind: subscription ? "subscription" : "plan",
               modelAliases,
-              gpt: { enabled: gptEnabled, user: gptUser.trim(), modelAliases: gptModelAliases },
+              gpt: {
+                enabled: gptEnabled,
+                ...(gptProvider.trim() ? { provider: gptProvider.trim() } : {}),
+                user: gptUser.trim(),
+                modelAliases: gptModelAliases,
+              },
               gatewayKey: key.trim() || (keepKey ? config.gatewayKey : ""),
               revision: randomUUID(),
             },
@@ -134,12 +140,20 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
           <>
             <p className="text-xs text-muted-foreground">
               <T>
-                GPT quota is shown for instances connected to this gateway. Leave the account name
-                blank only if Magpie has one Codex subscription.
+                GPT quota reads the selected provider card from this Magpie gateway. Use its
+                provider ID, such as cpa, or leave it blank for the built-in Codex subscription.
               </T>
             </p>
             <Label className="grid">
-              <T>Codex account name (optional)</T>
+              <T>Magpie GPT provider ID (optional)</T>
+              <Input
+                value={gptProvider}
+                onChange={(event) => setGptProvider(event.target.value)}
+                placeholder="codex"
+              />
+            </Label>
+            <Label className="grid">
+              <T>GPT account name in Magpie (optional)</T>
               <Input value={gptUser} onChange={(event) => setGptUser(event.target.value)} />
             </Label>
             <Label className="grid">

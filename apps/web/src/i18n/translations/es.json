@@ -12807,7 +12807,8 @@
   "1172ed54977ca854": "Cuota de Magpie",
   "e76cd3a269d01fc2": "Muestra la cuota de GLM o GPT guardada en la caché de Magpie. Guardar no cambia el enrutamiento de modelos.",
   "50da9833accd7700": "Mostrar cuota de GPT",
-  "ed504552e0620810": "La cuota de GPT se muestra en las instancias conectadas a esta puerta de enlace. Deja el nombre de la cuenta en blanco solo si Magpie tiene una única suscripción de Codex.",
-  "cecd8437a8dc565f": "Nombre de cuenta de Codex (opcional)",
-  "25abe03e3a72e677": "Alias de modelos GPT (separados por comas)"
+  "25abe03e3a72e677": "Alias de modelos GPT (separados por comas)",
+  "7a23600f76153af8": "La cuota de GPT se lee de la tarjeta del proveedor seleccionado en esta puerta de enlace de Magpie. Indica su ID, como cpa, o déjalo vacío para usar la suscripción integrada de Codex.",
+  "2a1fd9bb151e2b28": "ID del proveedor de GPT en Magpie (opcional)",
+  "531062b4f6530db5": "Nombre de la cuenta de GPT en Magpie (opcional)"
 }

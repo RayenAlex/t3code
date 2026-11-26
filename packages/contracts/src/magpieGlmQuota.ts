@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ForwardCompatibleOptional, IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import { ServerProviderUsageWindow } from "./providerUsageLimits.ts";
 
@@ -17,12 +17,23 @@ export const MagpieGlmQuotaInput = Schema.Struct({
 });
 export type MagpieGlmQuotaInput = typeof MagpieGlmQuotaInput.Type;
 
+export const MagpieQuotaBalancePart = Schema.Struct({
+  label: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(128))),
+  text: TrimmedNonEmptyString.check(Schema.isMaxLength(512)),
+  percent: ForwardCompatibleOptional(
+    Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
+  ),
+});
+export type MagpieQuotaBalancePart = typeof MagpieQuotaBalancePart.Type;
+
 export const MagpieGlmQuota = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("ready"),
     checkedAt: IsoDateTime,
     expiresAt: IsoDateTime,
     windows: Schema.Array(ServerProviderUsageWindow),
+    balance: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
+    balanceParts: Schema.optionalKey(Schema.Array(MagpieQuotaBalancePart)),
   }),
   Schema.Struct({
     status: Schema.Literals([

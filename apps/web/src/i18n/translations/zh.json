@@ -12831,7 +12831,8 @@
   "1172ed54977ca854": "Magpie 额度",
   "e76cd3a269d01fc2": "显示 Magpie 缓存的 GLM 或 GPT 额度。保存不会更改模型路由。",
   "50da9833accd7700": "显示 GPT 额度",
-  "ed504552e0620810": "仅在连接此网关的实例中显示 GPT 额度。只有 Magpie 中仅有一个 Codex 订阅时，才可将账号名称留空。",
-  "cecd8437a8dc565f": "Codex 账号名称（可选）",
-  "25abe03e3a72e677": "GPT 模型别名（以逗号分隔）"
+  "25abe03e3a72e677": "GPT 模型别名（以逗号分隔）",
+  "7a23600f76153af8": "GPT 额度读取此 Magpie 网关中指定供应商的卡片。填写供应商 ID（例如 cpa）；留空则读取 Magpie 内置的 Codex 订阅。",
+  "2a1fd9bb151e2b28": "Magpie GPT 供应商 ID（可选）",
+  "531062b4f6530db5": "Magpie 中的 GPT 账号名称（可选）"
 }
