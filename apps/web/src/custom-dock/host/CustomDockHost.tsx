@@ -17,6 +17,7 @@ import {
   Globe,
   ListTodo,
   PanelRight,
+  PencilRuler,
   X,
 } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -43,6 +44,8 @@ import { deriveLiveStreamTps } from "../core/streamRate";
 import { deriveDockSnapshot, rememberDockRuns } from "../core/threadObserver";
 import { ExternalPanelFrame, ExternalWebSettings } from "../panels/external-web";
 import { ComposerTaskPlan } from "../panels/session-glance";
+import { PrototypePolicyCapsule } from "../prototype/PrototypePolicyCapsule";
+import { PrototypeStudio } from "../prototype/PrototypeStudio";
 import { ComposerAnchorPortal } from "./ComposerAnchorPortal";
 import { DockTab, DockTabList } from "./DockTabs";
 import { composerMetricKeys } from "./dockStore";
@@ -54,13 +57,20 @@ import { RightRailTaskPortal, useRightRailGeometry } from "./RightRailTaskSlot";
 import { resolveDockPanels } from "./registry";
 import type { CustomDockPanelDefinition, ExternalWebPanelConfig, RunSummary } from "./types";
 
-const icons = { activity: Activity, globe: Globe, "list-todo": ListTodo, gauge: Gauge };
+const icons = {
+  activity: Activity,
+  globe: Globe,
+  "list-todo": ListTodo,
+  gauge: Gauge,
+  prototype: PencilRuler,
+};
 const noRef = () => null;
 const history = createRunHistory();
 const EMPTY_PROVIDERS: readonly ServerProvider[] = [];
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
 const GLANCE = "session-glance";
 const EXTERNAL = "external-web";
+const PROTOTYPE = "prototype-studio";
 const DRAWER = "t3-custom-dock-drawer";
 const COMPOSER_STACK = '[data-chat-composer-stack="true"]';
 
@@ -84,7 +94,9 @@ function renderExternal(config: ExternalWebPanelConfig) {
 }
 
 function panelTitle(panel: CustomDockPanelDefinition, copy: ReturnType<typeof useDockCopy>) {
-  return panel.id === GLANCE ? copy.glance : panel.id === EXTERNAL ? copy.external : panel.title;
+  if (panel.id === GLANCE) return copy.glance;
+  if (panel.id === EXTERNAL) return copy.external;
+  return panel.id === PROTOTYPE ? copy.prototypes : panel.title;
 }
 
 function openDrawer(id?: string) {
@@ -351,12 +363,15 @@ export function CompactBar({
   panel,
   open,
   close,
+  tools,
   children,
 }: {
   readonly anchor?: HTMLElement | undefined;
   readonly panel?: ReactNode;
   readonly open: () => void;
   readonly close?: (() => void) | undefined;
+  /** Controls that sit after the bar's main trigger. */
+  readonly tools?: ReactNode;
   readonly children: ReactNode;
 }) {
   const copy = useDockCopy();
@@ -413,6 +428,7 @@ export function CompactBar({
           </Popover.Portal>
         </Popover.Root>
       )}
+      {tools}
       {close && (
         <span className="shrink-0 opacity-65 focus-within:opacity-100 hover:opacity-100">
           <Button variant="ghost-muted" size="icon-xs" aria-label={copy.hideBar} onClick={close}>
@@ -577,6 +593,7 @@ function DockSurfaces({
           )}
         </RightRailTaskPortal>
       )}
+      {scope && <PrototypeStudio key={threadKey(scope)} scope={scope} />}
       <ComposerAnchorPortal
         threadActive={scope !== null && composer}
         fallback={<Launcher restore={collapsed} onRestore={restore} />}
@@ -602,6 +619,7 @@ function DockSurfaces({
                   ? () => dockPreferences.getState().setThreadCollapsed(threadKey(scope), true)
                   : undefined
               }
+              tools={scope ? <PrototypePolicyCapsule scope={scope} /> : undefined}
             >
               {snapshot ? (
                 glance?.renderComposerBar?.(snapshot)

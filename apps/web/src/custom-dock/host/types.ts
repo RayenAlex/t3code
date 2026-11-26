@@ -74,7 +74,7 @@ export type CustomDockThreadSnapshot = {
 export type CustomDockPanelDefinition = {
   id: string;
   title: string;
-  icon: "activity" | "globe" | "list-todo" | "gauge";
+  icon: "activity" | "globe" | "list-todo" | "gauge" | "prototype";
   order?: number;
   renderPanel: (snapshot: CustomDockThreadSnapshot) => ReactNode;
   renderComposerBar?: (snapshot: CustomDockThreadSnapshot) => ReactNode;

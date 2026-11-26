@@ -22,6 +22,7 @@ import { cn } from "~/lib/utils";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
 import { readThreadTurnItems } from "../../state/entities";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
+import { renderCustomDockPrototypeRow } from "../../custom-dock/prototype/PrototypeCard";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
 import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts";
 
@@ -366,6 +367,8 @@ export function HtmlRenderTimelineRow({
   if (ctx.renderHtmlRender) {
     return <div className="min-w-0 px-1">{ctx.renderHtmlRender(row)}</div>;
   }
+  const prototypeSlot = renderCustomDockPrototypeRow(row, ctx);
+  if (prototypeSlot !== undefined) return prototypeSlot;
   return (
     <div className="html-preview-lane min-w-0 px-1">
       <HtmlRenderFrame
