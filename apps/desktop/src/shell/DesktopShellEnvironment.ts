@@ -129,6 +129,7 @@ const LOGIN_SHELL_ENV_NAMES = [
   "https_proxy",
   "no_proxy",
   "T3CODE_TELEMETRY_ENABLED",
+  "DO_NOT_TRACK",
   "T3CODE_FEATURE_FLAGS",
   "T3CODE_RELEASE_BASE_URL",
   "__MISE_DIFF",
@@ -147,6 +148,8 @@ const WINDOWS_PROFILE_ENV_NAMES = [
   "HTTP_PROXY",
   "HTTPS_PROXY",
   "NO_PROXY",
+  "T3CODE_TELEMETRY_ENABLED",
+  "DO_NOT_TRACK",
 ] as const;
 const LOCALE_ENV_NAMES = ["LANG", "LC_ALL", "LC_CTYPE"] as const;
 const ANDROID_SDK_ENV_NAMES = ["ANDROID_HOME", "ANDROID_SDK_ROOT"] as const;
@@ -477,6 +480,11 @@ const installWindowsEnvironment = Effect.fn("desktop.shellEnvironment.installWin
         config.env[upper] = profile[upper];
       }
     }
+    for (const name of ["T3CODE_TELEMETRY_ENABLED", "DO_NOT_TRACK"] as const) {
+      if (!config.env[name] && profile[name]) {
+        config.env[name] = profile[name];
+      }
+    }
     return Boolean(noProfile.PATH && profile.PATH);
   },
 );
@@ -577,6 +585,7 @@ const installPosixEnvironment = Effect.fn("desktop.shellEnvironment.installPosix
       "JAVA_HOME",
       "PNPM_HOME",
       "T3CODE_TELEMETRY_ENABLED",
+      "DO_NOT_TRACK",
       "T3CODE_FEATURE_FLAGS",
       "T3CODE_RELEASE_BASE_URL",
     ] as const) {
@@ -689,6 +698,7 @@ const CACHED_ENV_NAMES = [
   "SSL_CERT_DIR",
   "NODE_EXTRA_CA_CERTS",
   "T3CODE_TELEMETRY_ENABLED",
+  "DO_NOT_TRACK",
   // The server reads its flags once at start, before discovery can finish.
   "T3CODE_FEATURE_FLAGS",
 ] as const;

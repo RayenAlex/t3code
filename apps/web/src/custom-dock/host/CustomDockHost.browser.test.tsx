@@ -1,5 +1,11 @@
 import { createMemoryHistory } from "@tanstack/react-router";
-import { NodeId, PlanId, type OrchestrationV2PlanArtifact } from "@t3tools/contracts";
+import {
+  MessageId,
+  NodeId,
+  PlanId,
+  RunId,
+  type OrchestrationV2PlanArtifact,
+} from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import type * as Context from "effect/Context";
 import { expect, it, vi } from "vite-plus/test";
@@ -12,7 +18,6 @@ import {
   emitThreadEvent,
   ENVIRONMENT_ID,
   installFakeEnvironment,
-  runningRun,
   threadWithHistory,
   type FakeDriver,
 } from "../../../test/fakeEnvironment";
@@ -117,7 +122,14 @@ it("removes task coordination after a turn ends without removing the chat", asyn
   await expect.element(answer).toBeVisible();
 
   await details.click();
-  const next = runningRun(thread.id, "task-lifecycle-next", 2, "next-user");
+  const next = {
+    ...completed,
+    id: RunId.make("task-lifecycle-next"),
+    ordinal: 2,
+    userMessageId: MessageId.make("next-user"),
+    status: "running" as const,
+    completedAt: null,
+  };
   await act(() => emitThreadEvent(thread.id, { type: "run.updated", payload: next }));
   await expect.element(screen.getByText("Run 2", { exact: true })).toBeVisible();
   await expect.element(taskTrigger).not.toBeInTheDocument();
