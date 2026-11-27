@@ -2714,3 +2714,12 @@ code {
 .messages-timeline-scroll:focus-visible {
   outline: none;
 }
+
+.prototype-studio-canvas {
+  background-color: color-mix(in srgb, var(--muted) 48%, var(--background));
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--foreground) 13%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 16px 16px;
+}

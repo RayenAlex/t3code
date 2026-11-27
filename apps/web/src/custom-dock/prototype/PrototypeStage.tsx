@@ -2,6 +2,7 @@ import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { useState } from "react";
 
+import { cn } from "../../lib/utils";
 import { observeResize } from "../../lib/observeResize";
 import {
   PROTOTYPE_DESKTOP_MIN_WIDTH,
@@ -38,8 +39,14 @@ export function PrototypeStage(props: {
   readonly viewport: PrototypeViewport;
   readonly mode: PrototypeMode;
   readonly caption: string;
-  /** The chat card marks the page; the studio only shows it. */
+  /** Whether clicking or dragging over the page records annotations. */
   readonly annotate: boolean;
+  /** Optional externally computed layout width and scale (used by the expanded studio). */
+  readonly layoutOverride?: { readonly width: number; readonly scale: number } | undefined;
+  /** Optional elevated framing for the expanded workbench canvas. */
+  readonly elevated?: boolean | undefined;
+  /** Called whenever the embedded document reports its measured height. */
+  readonly onContentHeight?: ((height: number) => void) | undefined;
 }) {
   const copy = useDockCopy();
   const { group, variant, viewport } = props;
@@ -65,18 +72,29 @@ export function PrototypeStage(props: {
     });
   };
   const [contentHeight, setContentHeight] = useState<number | undefined>(undefined);
+  const handleContentHeight = (height: number) => {
+    setContentHeight(height);
+    props.onContentHeight?.(height);
+  };
   // Until the column is measured, the page shows at its own width.
   const inner =
     columnWidth === null ? STAGE_PAGE_WIDTHS[viewport] : Math.max(columnWidth - STAGE_CHROME_PX, 1);
-  const { width, scale } = fitPrototypePage(viewport, inner);
+  const { width, scale } = props.layoutOverride ?? fitPrototypePage(viewport, inner);
   const pageHeight = htmlRenderFrameHeight(variant.htmlRender, width, contentHeight);
   const annotating = props.annotate && props.mode === "annotate";
+  const pageScaleState = scale < 1 ? "scaled" : scale > 1 ? "enlarged" : "natural";
+  const frameRadiusClass =
+    props.elevated === true
+      ? viewport === "mobile"
+        ? "rounded-2xl shadow-xl"
+        : "rounded-xl shadow-lg"
+      : "rounded-md";
 
   return (
-    <div ref={observeColumn} className="min-w-0">
+    <div ref={props.layoutOverride === undefined ? observeColumn : undefined} className="min-w-0">
       <div
         data-prototype-stage
-        className="mx-auto overflow-hidden rounded-md border border-border bg-card"
+        className={cn("mx-auto overflow-hidden border border-border bg-card", frameRadiusClass)}
         style={{ width: width * scale + STAGE_CHROME_PX }}
       >
         <div className="flex h-6 items-center justify-between gap-2 border-b border-border bg-muted px-2.5 text-2xs text-muted-foreground">
@@ -88,11 +106,20 @@ export function PrototypeStage(props: {
             </span>
             <span className="truncate">{props.caption}</span>
           </span>
-          {annotating ? <span className="shrink-0">{copy.protoModeAnnotate}</span> : null}
+          <span className="flex shrink-0 items-center gap-2 font-mono text-3xs">
+            {props.elevated === true ? (
+              <span>
+                {Math.round(width)}×{Math.round(pageHeight)} · {Math.round(scale * 100)}%
+              </span>
+            ) : null}
+            {annotating ? (
+              <span className="font-sans text-2xs">{copy.protoModeAnnotate}</span>
+            ) : null}
+          </span>
         </div>
         <div className="flex justify-center bg-background p-2.5">
           <div
-            data-prototype-page={scale < 1 ? "scaled" : "natural"}
+            data-prototype-page={pageScaleState}
             className="relative"
             style={{ width: width * scale, height: pageHeight * scale }}
           >
@@ -101,7 +128,7 @@ export function PrototypeStage(props: {
               style={{
                 width,
                 height: pageHeight,
-                transform: scale < 1 ? `scale(${scale})` : undefined,
+                transform: scale !== 1 ? `scale(${scale})` : undefined,
                 transformOrigin: "top left",
               }}
             >
@@ -109,7 +136,7 @@ export function PrototypeStage(props: {
                 environmentId={props.environmentId}
                 threadRef={props.threadRef}
                 htmlRender={variant.htmlRender}
-                onContentHeight={setContentHeight}
+                onContentHeight={handleContentHeight}
               />
               {props.annotate ? (
                 <AnnotationLayer

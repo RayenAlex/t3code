@@ -3,14 +3,23 @@ import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 
-import type {
-  AnnotationKind,
-  AnnotationMark,
-  PrototypeAnnotation,
-  PrototypeViewport,
+import {
+  clampStudioZoom,
+  type AnnotationKind,
+  type AnnotationMark,
+  type PrototypeAnnotation,
+  type PrototypeViewport,
+  type StudioZoomMode,
 } from "../core/prototypes";
 
 export type PrototypeMode = "annotate" | "browse";
+
+export interface PrototypeOriginRect {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+}
 
 export interface AnnotationDraft extends AnnotationMark {
   readonly groupId: string;
@@ -28,6 +37,7 @@ export interface PrototypeView {
 export interface PrototypeStudioState {
   readonly groupId: string;
   readonly compare: boolean;
+  readonly originRect: PrototypeOriginRect | null;
 }
 
 const DEFAULT_VIEW: PrototypeView = { mode: "browse", viewport: "desktop" };
@@ -41,6 +51,9 @@ interface PrototypeState {
   readonly selectedVariants: Readonly<Record<string, string>>;
   readonly studio: PrototypeStudioState | null;
   readonly studioViewport: PrototypeViewport;
+  readonly studioZoomMode: StudioZoomMode;
+  readonly studioManualZoom: number;
+  readonly studioRailOpen: boolean;
   /** The variant beside the selected one in the studio's compare view. */
   readonly studioRightId: string | null;
   readonly startDraft: (mark: Omit<AnnotationDraft, "kind" | "text">) => void;
@@ -57,10 +70,15 @@ interface PrototypeState {
   readonly selectAnnotation: (id: number | null) => void;
   readonly setView: (groupId: string, view: Partial<PrototypeView>) => void;
   readonly selectVariant: (groupId: string, variantId: string) => void;
-  readonly openStudio: (groupId: string) => void;
+  readonly openStudio: (groupId: string, originRect?: PrototypeOriginRect | null) => void;
   readonly closeStudio: () => void;
   readonly setStudioCompare: (compare: boolean) => void;
   readonly setStudioViewport: (viewport: PrototypeViewport) => void;
+  readonly setStudioZoomFit: () => void;
+  readonly setStudioManualZoom: (zoom: number) => void;
+  readonly stepStudioZoom: (delta: number, currentScale: number) => void;
+  readonly setStudioRailOpen: (open: boolean) => void;
+  readonly toggleStudioRail: () => void;
   readonly setStudioRightId: (variantId: string | null) => void;
 }
 
@@ -84,6 +102,9 @@ export function createPrototypeStore() {
     selectedVariants: {},
     studio: null,
     studioViewport: "desktop",
+    studioZoomMode: "fit",
+    studioManualZoom: 1,
+    studioRailOpen: true,
     studioRightId: null,
     startDraft: (mark) =>
       set({
@@ -144,7 +165,14 @@ export function createPrototypeStore() {
         draft: null,
         selectedVariants: { ...state.selectedVariants, [groupId]: variantId },
       })),
-    openStudio: (groupId) => set({ studio: { groupId, compare: false }, studioRightId: null }),
+    openStudio: (groupId, originRect = null) =>
+      set((state) => ({
+        studio: { groupId, compare: false, originRect },
+        studioViewport: state.views[groupId]?.viewport ?? state.studioViewport,
+        studioZoomMode: "fit",
+        studioManualZoom: 1,
+        studioRightId: null,
+      })),
     closeStudio: () => set({ studio: null }),
     setStudioCompare: (compare) =>
       set((state) =>
@@ -152,7 +180,20 @@ export function createPrototypeStore() {
           ? state
           : { studio: { ...state.studio, compare }, studioRightId: null },
       ),
-    setStudioViewport: (studioViewport) => set({ studioViewport }),
+    setStudioViewport: (studioViewport) => set({ studioViewport, draft: null }),
+    setStudioZoomFit: () => set({ studioZoomMode: "fit" }),
+    setStudioManualZoom: (zoom) =>
+      set({ studioZoomMode: "manual", studioManualZoom: clampStudioZoom(zoom) }),
+    stepStudioZoom: (delta, currentScale) =>
+      set((state) => {
+        const base = state.studioZoomMode === "fit" ? currentScale : state.studioManualZoom;
+        return {
+          studioZoomMode: "manual",
+          studioManualZoom: clampStudioZoom(base + delta),
+        };
+      }),
+    setStudioRailOpen: (studioRailOpen) => set({ studioRailOpen }),
+    toggleStudioRail: () => set((state) => ({ studioRailOpen: !state.studioRailOpen })),
     setStudioRightId: (studioRightId) => set({ studioRightId }),
   }));
 }

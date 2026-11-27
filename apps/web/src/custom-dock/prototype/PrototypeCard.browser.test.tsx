@@ -211,3 +211,45 @@ it("switches variants with 1/2/3 from inside the card, which opens the studio", 
   expect(store.getState().studio).toBeNull();
   expect(screen.container.querySelectorAll("iframe")).toHaveLength(1);
 });
+
+it("supports zoom controls, collapsible notes rail, and live annotation inside the studio", async () => {
+  mocks.items = renders("run-1", [["single", "[Prototype] Model picker"]]);
+  const store = createPrototypeStore();
+  await using screen = await render(
+    <PrototypeStoreProvider store={store}>
+      {timeline(mocks.items)}
+      <PrototypeStudio scope={SCOPE} />
+    </PrototypeStoreProvider>,
+    {
+      // Nothing here navigates.
+      router: false,
+    },
+  );
+
+  await screen.getByRole("button", { name: "Open in prototype studio" }).click();
+  const studio = screen.getByRole("dialog", { name: "Prototype studio" });
+  await expect.element(studio).toBeVisible();
+  expect(store.getState().studio?.originRect).not.toBeNull();
+
+  // Manual zoom enlarges above 100% and resets back to 100% / Fit.
+  await studio.getByRole("button", { name: "100%" }).click();
+  await expect.element(studio.getByText("100%").first()).toBeVisible();
+  await studio.getByRole("button", { name: "Zoom in" }).click();
+  expect(store.getState().studioZoomMode).toBe("manual");
+  expect(store.getState().studioManualZoom).toBeGreaterThan(1);
+  expect(studio.element().querySelector('[data-prototype-page="enlarged"]')).not.toBeNull();
+
+  // Toggle the notes sidebar off and back on, then switch into annotate mode.
+  const toggleRail = studio.getByRole("button", { name: "Toggle notes sidebar" });
+  await toggleRail.click();
+  expect(store.getState().studioRailOpen).toBe(false);
+  await toggleRail.click();
+  expect(store.getState().studioRailOpen).toBe(true);
+  await studio.getByRole("button", { name: "Annotate" }).click();
+  expect(
+    studio.element().querySelector('[data-prototype-annotation-layer="active"]'),
+  ).not.toBeNull();
+
+  await studio.getByRole("button", { name: "Close prototype studio" }).click();
+  await expect.element(studio).not.toBeInTheDocument();
+});

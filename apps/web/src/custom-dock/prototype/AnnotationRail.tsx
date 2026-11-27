@@ -108,9 +108,12 @@ export function AnnotationRail(props: {
   readonly mode: PrototypeMode;
   readonly annotations: readonly PrototypeAnnotation[];
   readonly onStartAnnotate: () => void;
+  readonly layout?: "card" | "studio" | "sheet" | undefined;
+  readonly onClose?: (() => void) | undefined;
 }) {
   const copy = useDockCopy();
   const { group, variant, viewport } = props;
+  const layout = props.layout ?? "card";
   const draft = usePrototypeStore((state) =>
     state.draft !== null &&
     state.draft.groupId === group.id &&
@@ -124,22 +127,38 @@ export function AnnotationRail(props: {
   const selectAnnotation = usePrototypeStore((state) => state.selectAnnotation);
   const removeAnnotation = usePrototypeStore((state) => state.removeAnnotation);
   const namesVariant = group.variants.length > 1 && variant.key !== null;
+  const containerClass =
+    layout === "studio"
+      ? "flex h-full min-h-0 flex-col bg-card"
+      : layout === "sheet"
+        ? "flex max-h-[60dvh] min-h-48 flex-col bg-card"
+        : "sticky top-2 flex max-h-[calc(100dvh-5rem)] min-h-48 flex-col self-start bg-card";
   return (
-    <aside
-      data-prototype-annotation-rail
-      className="sticky top-2 flex max-h-[calc(100dvh-5rem)] min-h-48 flex-col self-start bg-card"
-    >
+    <aside data-prototype-annotation-rail className={containerClass}>
+      {layout === "sheet" ? (
+        <div
+          aria-hidden="true"
+          className="mx-auto mt-2 mb-0.5 h-1 w-9 shrink-0 rounded-full bg-border"
+        />
+      ) : null}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-2.5 py-2 text-xs font-semibold">
         <span>{copy.protoRailTitle.replace("{count}", String(props.annotations.length))}</span>
-        {props.annotations.length > 0 ? (
-          <Button
-            size="xs"
-            variant="ghost-muted"
-            onClick={() => clearAnnotations(group.id, variant.id, viewport)}
-          >
-            {namesVariant ? copy.protoClearVariant : copy.protoClearSingle}
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-1">
+          {props.annotations.length > 0 ? (
+            <Button
+              size="xs"
+              variant="ghost-muted"
+              onClick={() => clearAnnotations(group.id, variant.id, viewport)}
+            >
+              {namesVariant ? copy.protoClearVariant : copy.protoClearSingle}
+            </Button>
+          ) : null}
+          {props.onClose !== undefined ? (
+            <Button size="xs" variant="ghost-muted" onClick={props.onClose}>
+              {copy.protoStudioCloseSheet}
+            </Button>
+          ) : null}
+        </div>
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain p-2.5">
         {draft !== null ? <DraftEditor draft={draft} /> : null}

@@ -18,6 +18,17 @@ export function isPrototypeViewport(value: unknown): value is PrototypeViewport 
 /** A desktop page lays out at least this wide, then scales down to fit a narrow column. */
 export const PROTOTYPE_DESKTOP_MIN_WIDTH = HTML_RENDER_COLUMN_WIDTH;
 const PROTOTYPE_DESKTOP_MAX_WIDTH = 1280;
+const STUDIO_DESKTOP_FIT_MAX_WIDTH = 960;
+
+export type StudioZoomMode = "fit" | "manual";
+const STUDIO_ZOOM_MIN = 0.5;
+const STUDIO_ZOOM_MAX = 2;
+export const STUDIO_ZOOM_FIT_MAX = 1.6;
+export const STUDIO_ZOOM_STEP = 0.15;
+
+export function clampStudioZoom(zoom: number): number {
+  return Math.round(Math.min(STUDIO_ZOOM_MAX, Math.max(STUDIO_ZOOM_MIN, zoom)) * 100) / 100;
+}
 
 // `[Prototype] <topic>` is one prototype; `[Prototype:A] <topic>: <variant name>` is one of 2-3.
 const PROTOTYPE_TITLE = /^\s*\[prototype(?::\s*([^\]\s]{1,12}))?\]\s*(\S[\s\S]*?)\s*$/i;
@@ -249,7 +260,7 @@ export function annotationsFor(
   );
 }
 
-/** The width a page lays out at, and the scale that fits it into `available` pixels. */
+/** The width a page lays out at least, and the scale that fits it into `available` pixels. */
 export function fitPrototypePage(
   viewport: PrototypeViewport,
   available: number,
@@ -260,4 +271,37 @@ export function fitPrototypePage(
       ? fixed
       : Math.min(PROTOTYPE_DESKTOP_MAX_WIDTH, Math.max(PROTOTYPE_DESKTOP_MIN_WIDTH, available));
   return { width, scale: Math.min(1, available / width) };
+}
+
+/**
+ * Computes layout width and visual scale for the expanded studio canvas.
+ * Fit mode enlarges short or device-width pages up to `STUDIO_ZOOM_FIT_MAX` so they fill the
+ * stage without shrinking tall pages below 100% when the width already fits.
+ */
+export function fitStudioPage(params: {
+  readonly viewport: PrototypeViewport;
+  readonly availableWidth: number;
+  readonly availableHeight: number;
+  readonly pageHeight: number;
+  readonly zoomMode: StudioZoomMode;
+  readonly manualZoom: number;
+}): { readonly width: number; readonly scale: number } {
+  const fixed = PROTOTYPE_VIEWPORT_WIDTHS[params.viewport];
+  const safeWidth = Math.max(params.availableWidth, 1);
+  const safeHeight = Math.max(params.availableHeight, 1);
+  const safePageHeight = Math.max(params.pageHeight, 1);
+  const width =
+    fixed !== undefined
+      ? fixed
+      : Math.min(STUDIO_DESKTOP_FIT_MAX_WIDTH, Math.max(PROTOTYPE_DESKTOP_MIN_WIDTH, safeWidth));
+  if (params.zoomMode === "manual") {
+    return { width, scale: clampStudioZoom(params.manualZoom) };
+  }
+  const widthScale = safeWidth / width;
+  if (widthScale < 1) {
+    return { width, scale: widthScale };
+  }
+  const heightScale = safeHeight / safePageHeight;
+  const scale = Math.min(widthScale, Math.max(1, heightScale), STUDIO_ZOOM_FIT_MAX);
+  return { width, scale };
 }

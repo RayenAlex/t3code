@@ -3,11 +3,14 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   annotationGeometry,
+  clampStudioZoom,
   collectPrototypeGroups,
   fitPrototypePage,
+  fitStudioPage,
   formatAnnotationArea,
   parsePrototypeTitle,
   prototypeGroupForRow,
+  STUDIO_ZOOM_FIT_MAX,
 } from "../prototypes";
 
 function renderItem(input: {
@@ -185,5 +188,67 @@ describe("fitPrototypePage", () => {
   it("keeps tablet and mobile at their device widths", () => {
     expect(fitPrototypePage("mobile", 450)).toEqual({ width: 390, scale: 1 });
     expect(fitPrototypePage("tablet", 450)).toEqual({ width: 768, scale: 450 / 768 });
+  });
+});
+
+describe("fitStudioPage", () => {
+  it("enlarges device-width pages in fit mode to fill large screens up to the fit cap", () => {
+    const tablet = fitStudioPage({
+      viewport: "tablet",
+      availableWidth: 1400,
+      availableHeight: 840,
+      pageHeight: 560,
+      zoomMode: "fit",
+      manualZoom: 1,
+    });
+    expect(tablet.width).toBe(768);
+    expect(tablet.scale).toBeCloseTo(1.5);
+
+    const mobile = fitStudioPage({
+      viewport: "mobile",
+      availableWidth: 1400,
+      availableHeight: 1200,
+      pageHeight: 500,
+      zoomMode: "fit",
+      manualZoom: 1,
+    });
+    expect(mobile.width).toBe(390);
+    expect(mobile.scale).toBe(STUDIO_ZOOM_FIT_MAX);
+  });
+
+  it("never shrinks a tall page below 100% when the width already fits", () => {
+    const tall = fitStudioPage({
+      viewport: "desktop",
+      availableWidth: 1200,
+      availableHeight: 700,
+      pageHeight: 1800,
+      zoomMode: "fit",
+      manualZoom: 1,
+    });
+    expect(tall.width).toBe(960);
+    expect(tall.scale).toBe(1);
+  });
+
+  it("scales down on narrow screens and clamps manual zoom", () => {
+    const narrow = fitStudioPage({
+      viewport: "tablet",
+      availableWidth: 384,
+      availableHeight: 600,
+      pageHeight: 500,
+      zoomMode: "fit",
+      manualZoom: 1,
+    });
+    expect(narrow).toEqual({ width: 768, scale: 0.5 });
+
+    const manual = fitStudioPage({
+      viewport: "tablet",
+      availableWidth: 1200,
+      availableHeight: 700,
+      pageHeight: 500,
+      zoomMode: "manual",
+      manualZoom: 3.5,
+    });
+    expect(manual).toEqual({ width: 768, scale: 2 });
+    expect(clampStudioZoom(0.1)).toBe(0.5);
   });
 });

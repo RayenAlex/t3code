@@ -1,6 +1,6 @@
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { Maximize2Icon, PencilRulerIcon } from "lucide-react";
-import type { KeyboardEvent, ReactNode } from "react";
+import { useRef, type KeyboardEvent, type ReactNode } from "react";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -73,6 +73,7 @@ function PrototypeCard({
   readonly threadRef: ScopedThreadRef | undefined;
 }) {
   const copy = useDockCopy();
+  const cardRef = useRef<HTMLElement>(null);
   const view = usePrototypeStore((state) => readPrototypeView(state.views, group.id));
   const selectedVariantId = usePrototypeStore(
     (state) => state.selectedVariants[group.id] ?? group.variants[0]?.id ?? "",
@@ -114,6 +115,7 @@ function PrototypeCard({
   };
   return (
     <section
+      ref={cardRef}
       data-prototype-card={group.id}
       aria-label={title}
       onKeyDown={onKeyDown}
@@ -164,7 +166,20 @@ function PrototypeCard({
                   size="icon-xs"
                   variant="outline"
                   aria-label={copy.protoOpenStudio}
-                  onClick={() => openStudio(group.id)}
+                  onClick={() => {
+                    const rect = cardRef.current?.getBoundingClientRect();
+                    openStudio(
+                      group.id,
+                      rect !== undefined && rect.width > 0 && rect.height > 0
+                        ? {
+                            left: rect.left,
+                            top: rect.top,
+                            width: rect.width,
+                            height: rect.height,
+                          }
+                        : null,
+                    );
+                  }}
                 />
               }
             >
