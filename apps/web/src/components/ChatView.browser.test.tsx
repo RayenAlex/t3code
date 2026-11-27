@@ -146,7 +146,7 @@ it("applies saved Magpie settings to the open chat rail without reconnecting", a
   const origin = "http://192.168.100.100:3425";
   const localProxy = "http://127.0.0.1:15722";
   const glm = { instanceId, model: "gateway/custom-model" };
-  const other = { instanceId, model: "gpt-5.4" };
+  const gptModel = { instanceId, model: "cpa/gpt-6.2-sol" };
   const thread = threadWithHistory("glm-quota", 1, glm);
   const threadRef = scopeThreadRef(ENVIRONMENT_ID, thread.id);
   using _environment = installFakeEnvironment([thread], {
@@ -158,6 +158,7 @@ it("applies saved Magpie settings to the open chat rail without reconnecting", a
         models: [
           ...CODEX_PROVIDER.models,
           { slug: glm.model, name: "Gateway GLM alias", isCustom: false, capabilities: null },
+          { slug: gptModel.model, name: "GPT-6.2 Sol", isCustom: false, capabilities: null },
         ],
       },
     ],
@@ -226,17 +227,21 @@ it("applies saved Magpie settings to the open chat rail without reconnecting", a
   await expect.element(card).not.toBeInTheDocument();
   expect(reads).toHaveBeenCalledTimes(2);
   await act(() =>
-    useComposerDraftStore.getState().setModelSelection(threadRef, other, { explicit: true }),
+    useComposerDraftStore.getState().setModelSelection(threadRef, gptModel, { explicit: true }),
   );
-  const gpt = { enabled: true, user: "", modelAliases: [] };
+  const gpt = { enabled: true, provider: "cpa", user: "", modelAliases: [] };
   await act(() => save({ ...saved, gpt, revision: "fourth" }));
   await expect.element(card).not.toBeInTheDocument();
   await expect.element(gptCard).not.toBeInTheDocument();
   expect(reads).toHaveBeenCalledTimes(2);
-  await act(() => save({ ...saved, url: localProxy, gpt, revision: "fifth" }));
+  await act(() => save({ ...saved, gpt: { ...gpt, routeOrigin: localProxy }, revision: "fifth" }));
   await expect.element(gptCard.getByText("77% left")).toBeVisible();
   expect(reads).toHaveBeenCalledTimes(3);
-  expect(reads).toHaveBeenLastCalledWith(other);
+  expect(reads).toHaveBeenLastCalledWith(gptModel);
+  await act(() => save({ ...saved, url: localProxy, gpt, revision: "sixth" }));
+  await expect.element(gptCard.getByText("77% left")).toBeVisible();
+  expect(reads).toHaveBeenCalledTimes(4);
+  expect(reads).toHaveBeenLastCalledWith(gptModel);
 });
 
 it("opens a linked Linear issue from an inactive thread's sidebar badge", async () => {

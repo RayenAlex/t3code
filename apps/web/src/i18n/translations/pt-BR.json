@@ -13032,5 +13032,7 @@
   "25abe03e3a72e677": "Aliases de modelos GPT (separados por vírgulas)",
   "7a23600f76153af8": "A cota GPT é lida no cartão do provedor selecionado neste gateway Magpie. Informe o ID do provedor, como cpa, ou deixe em branco para usar a assinatura integrada do Codex.",
   "2a1fd9bb151e2b28": "ID do provedor de GPT no Magpie (opcional)",
+  "b4119642f63ecd65": "Origem do proxy do GPT (opcional)",
+  "81c5e6f92bb16739": "Se as solicitações do GPT passarem por um proxy separado, informe a origem sem /v1. A cota continua sendo consultada no gateway Magpie acima.",
   "531062b4f6530db5": "Nome da conta GPT no Magpie (opcional)"
 }

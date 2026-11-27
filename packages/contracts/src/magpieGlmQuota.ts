@@ -64,6 +64,18 @@ export function magpieGatewayOrigin(value: string): string | undefined {
   }
 }
 
+export function matchesMagpieGptRoute(
+  endpoint: string | undefined,
+  gatewayOrigin: string,
+  routeOrigin: string | undefined,
+): boolean {
+  return (
+    endpoint !== undefined &&
+    (endpoint === gatewayOrigin ||
+      (routeOrigin !== undefined && endpoint === magpieGatewayOrigin(routeOrigin)))
+  );
+}
+
 export function isMagpieGlmDriver(driver: string): boolean {
   return driver === "claudeAgent" || driver === "codex";
 }

@@ -5,6 +5,7 @@ import {
   isMagpieGlmDriver,
   magpieGatewayOrigin,
   magpieQuotaFamily,
+  matchesMagpieGptRoute,
   type MagpieQuotaFamily,
   type MagpieQuotaBalancePart,
   type EnvironmentId,
@@ -64,7 +65,9 @@ export function RightRailGlmQuotaSlot({ scope }: { readonly scope: ScopedThreadR
       ? config.magpieGlmQuota
       : undefined;
   const gptBinding =
-    saved?.gpt?.enabled && gateway && provider?.auth.endpoint === gateway.origin
+    saved?.gpt?.enabled &&
+    gateway &&
+    matchesMagpieGptRoute(provider?.auth.endpoint, gateway.origin, saved.gpt.routeOrigin)
       ? { ...gateway, modelAliases: saved.gpt.modelAliases }
       : undefined;
   if (!binding && !gptBinding) return null;

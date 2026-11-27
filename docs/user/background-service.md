@@ -45,12 +45,11 @@ has one. If Magpie requires authentication, enter its gateway key. Use HTTPS
 for gateways on untrusted networks. The key stays in the T3 Server's secret
 store and is not sent back to the client.
 
-Save to apply the setting immediately. It covers Claude Code and Codex instances
-already using that gateway; it does not change their routing or login. If a GLM
-model is exposed under a different name, enter its exact ID as a model alias.
-The card appears in the open right rail when that model is selected. Re-reading
-shows Magpie's cached quota; it does not refresh the vendor's quota or identify
-which account handled the last message.
+Save to apply the setting immediately. This does not change the routing or login
+of your Claude Code or Codex instances. If a GLM model is exposed under a different
+name, enter its exact ID as a model alias. The card appears in the open right rail
+when that model is selected. Re-reading shows Magpie's cached quota; it does not
+refresh the vendor's quota or identify which account handled the last message.
 
 To display GPT quota, turn on **Show GPT quota** and save. For a route through
 Magpie's `cpa` provider, enter `cpa` as the **Magpie GPT provider ID**. Leave the
@@ -60,7 +59,10 @@ Magpie. T3 only reads the cached card on Magpie with the same gateway key; no
 CLIProxyAPI management address or key is needed. It shows the balance or quota
 windows that Magpie reports, not a percentage inferred from the balance or from
 request counts. For models without GPT in their ID or name, enter the exact ID as
-an alias. The GPT model must be selected on an instance using this gateway.
+an alias. GPT quota normally appears for instances using that gateway. If your
+instance sends GPT requests through a separate proxy (such as Codex Switch), set
+**GPT proxy origin** to that proxy's address without `/v1`. The quota and gateway
+key still go through the configured Magpie gateway, not the proxy.
 
 An existing `T3CODE_MAGPIE_GLM_QUOTA` server variable still works until you save
 an in-app configuration. Turning off the in-app setting also suppresses that

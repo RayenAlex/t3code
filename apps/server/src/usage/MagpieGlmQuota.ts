@@ -7,6 +7,7 @@ import {
   isMagpieGlmDriver,
   magpieGatewayOrigin,
   magpieQuotaFamily,
+  matchesMagpieGptRoute,
   MagpieQuotaBalancePart,
   type MagpieQuotaFamily,
   type MagpieGlmQuota as Quota,
@@ -277,7 +278,11 @@ const make = Effect.gen(function* () {
       return { status: "notApplicable" };
     }
     const modelName = provider.models?.find((entry) => entry.slug === input.model)?.name;
-    const gpt = saved?.gpt?.enabled && provider.auth.endpoint === origin ? saved.gpt : undefined;
+    const gpt =
+      saved?.gpt?.enabled &&
+      matchesMagpieGptRoute(provider.auth.endpoint, origin, saved.gpt.routeOrigin)
+        ? saved.gpt
+        : undefined;
     const family = magpieQuotaFamily(
       input.model,
       modelName,

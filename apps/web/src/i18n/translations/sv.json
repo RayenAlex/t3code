@@ -13039,5 +13039,7 @@
   "25abe03e3a72e677": "GPT-modellalias (kommaseparerade)",
   "7a23600f76153af8": "GPT-kvoten läses från den valda leverantörens kort i denna Magpie-gateway. Ange leverantörens ID, till exempel cpa, eller lämna det tomt för den inbyggda Codex-prenumerationen.",
   "2a1fd9bb151e2b28": "Magpie-leverantörs-ID för GPT (valfritt)",
+  "b4119642f63ecd65": "GPT-proxyns adress (valfritt)",
+  "81c5e6f92bb16739": "Om GPT-förfrågningar går via en separat proxy, ange dess adress utan /v1. Kvoten hämtas fortfarande från Magpie-gatewayen ovan.",
   "531062b4f6530db5": "GPT-kontonamn i Magpie (valfritt)"
 }

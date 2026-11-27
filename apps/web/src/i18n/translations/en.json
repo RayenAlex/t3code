@@ -13041,5 +13041,7 @@
   "25abe03e3a72e677": "GPT model aliases (comma-separated)",
   "7a23600f76153af8": "GPT quota reads the selected provider card from this Magpie gateway. Use its provider ID, such as cpa, or leave it blank for the built-in Codex subscription.",
   "2a1fd9bb151e2b28": "Magpie GPT provider ID (optional)",
+  "b4119642f63ecd65": "GPT proxy origin (optional)",
+  "81c5e6f92bb16739": "If GPT requests go through a separate proxy, enter its origin without /v1. Quota is still read from the Magpie gateway above.",
   "531062b4f6530db5": "GPT account name in Magpie (optional)"
 }

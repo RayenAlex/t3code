@@ -13032,5 +13032,7 @@
   "25abe03e3a72e677": "GPT-Modellaliasnamen (durch Kommas getrennt)",
   "7a23600f76153af8": "Das GPT-Kontingent stammt von der ausgewählten Anbieterkarte dieses Magpie-Gateways. Gib die Anbieter-ID ein, etwa cpa, oder lass sie für das integrierte Codex-Abonnement leer.",
   "2a1fd9bb151e2b28": "Magpie-Anbieter-ID für GPT (optional)",
+  "b4119642f63ecd65": "GPT-Proxy-Adresse (optional)",
+  "81c5e6f92bb16739": "Wenn GPT-Anfragen über einen separaten Proxy laufen, gib seine Adresse ohne /v1 ein. Das Kontingent wird weiterhin vom oben angegebenen Magpie-Gateway abgerufen.",
   "531062b4f6530db5": "GPT-Kontoname in Magpie (optional)"
 }

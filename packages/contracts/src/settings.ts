@@ -981,6 +981,11 @@ export const MagpieGlmQuotaSettings = Schema.Struct({
       provider: Schema.optionalKey(TrimmedNonEmptyString),
       user: TrimmedString,
       modelAliases: Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
+      routeOrigin: Schema.optionalKey(
+        TrimmedNonEmptyString.check(
+          Schema.makeFilter((url) => magpieGatewayOrigin(url) !== undefined),
+        ),
+      ),
     }),
   ),
   gatewayKey: Schema.String.pipe(secretSetting),

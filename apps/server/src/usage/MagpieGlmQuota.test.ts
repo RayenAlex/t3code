@@ -267,6 +267,8 @@ it.layer(NodeServices.layer)("Magpie GLM quota", (it) => {
           }) as unknown as ServerProvider;
         const native = ProviderInstanceId.make("native-codex");
         const other = ProviderInstanceId.make("other-gateway");
+        const proxy = ProviderInstanceId.make("codex-switch");
+        const proxyOrigin = "http://127.0.0.1:15722";
         const codex = {
           provider: "codex",
           kind: "subscription",
@@ -309,6 +311,7 @@ it.layer(NodeServices.layer)("Magpie GLM quota", (it) => {
           yield* settings.updateSettings({ magpieGlmQuota: { ...saved, gpt } });
           expect(yield* read("gpt-6.1", native)).toEqual({ status: "notApplicable" });
           expect(yield* read("gpt-6.1", other)).toEqual({ status: "notApplicable" });
+          expect(yield* read("cpa/gpt-6.2-sol", proxy)).toEqual({ status: "notApplicable" });
           expect(calls).toEqual([]);
           expect(yield* read("zhipu/glm-5")).toMatchObject({
             status: "ready",
@@ -353,7 +356,10 @@ it.layer(NodeServices.layer)("Magpie GLM quota", (it) => {
           };
           cards = [CARD, codex, { ...cpaCard, user: "other", alias: "Other CPA" }, cpaCard];
           yield* settings.updateSettings({
-            magpieGlmQuota: { ...saved, gpt: { ...gpt, provider: "cpa", user: "Work CPA" } },
+            magpieGlmQuota: {
+              ...saved,
+              gpt: { ...gpt, provider: "cpa", user: "Work CPA", routeOrigin: `${proxyOrigin}/` },
+            },
           });
           expect(yield* read("gpt-6.1")).toEqual({
             status: "ready",
@@ -362,6 +368,14 @@ it.layer(NodeServices.layer)("Magpie GLM quota", (it) => {
             windows: [],
             balance: "≈¥88.00",
           });
+          const beforeProxy = calls.length;
+          expect(yield* read("cpa/gpt-6.2-sol", proxy)).toMatchObject({
+            status: "ready",
+            balance: "≈¥88.00",
+          });
+          expect(yield* read("cpa/gpt-6.2-sol", native)).toEqual({ status: "notApplicable" });
+          expect(yield* read("cpa/gpt-6.2-sol", other)).toEqual({ status: "notApplicable" });
+          expect(calls).toHaveLength(beforeProxy + 1);
           expect(calls.at(-1)).toEqual([
             `${ORIGIN}/v1/magpie/quotas/cards`,
             "Bearer test-gpt-gateway-key",
@@ -415,6 +429,7 @@ it.layer(NodeServices.layer)("Magpie GLM quota", (it) => {
                       provider(INSTANCE, ORIGIN),
                       provider(native, undefined),
                       provider(other, LAN_ORIGIN),
+                      provider(proxy, proxyOrigin),
                     ]),
                   }),
                   FetchHttpClient.layer,

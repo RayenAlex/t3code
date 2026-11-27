@@ -13032,5 +13032,7 @@
   "25abe03e3a72e677": "Alias de modèles GPT (séparés par des virgules)",
   "7a23600f76153af8": "Le quota GPT est lu sur la carte du fournisseur sélectionné dans cette passerelle Magpie. Indiquez son identifiant, par exemple cpa, ou laissez le champ vide pour utiliser l’abonnement Codex intégré.",
   "2a1fd9bb151e2b28": "Identifiant du fournisseur GPT dans Magpie (facultatif)",
+  "b4119642f63ecd65": "Origine du proxy GPT (facultatif)",
+  "81c5e6f92bb16739": "Si les requêtes GPT passent par un proxy distinct, saisissez son origine sans /v1. Le quota est toujours récupéré auprès de la passerelle Magpie ci-dessus.",
   "531062b4f6530db5": "Nom du compte GPT dans Magpie (facultatif)"
 }

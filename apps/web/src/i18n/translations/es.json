@@ -13027,5 +13027,7 @@
   "25abe03e3a72e677": "Alias de modelos GPT (separados por comas)",
   "7a23600f76153af8": "La cuota de GPT se lee de la tarjeta del proveedor seleccionado en esta puerta de enlace de Magpie. Indica su ID, como cpa, o déjalo vacío para usar la suscripción integrada de Codex.",
   "2a1fd9bb151e2b28": "ID del proveedor de GPT en Magpie (opcional)",
+  "b4119642f63ecd65": "Origen del proxy de GPT (opcional)",
+  "81c5e6f92bb16739": "Si las solicitudes de GPT pasan por un proxy distinto, indica su origen sin /v1. La cuota se sigue consultando en la puerta de enlace de Magpie indicada arriba.",
   "531062b4f6530db5": "Nombre de la cuenta de GPT en Magpie (opcional)"
 }

@@ -45,6 +45,7 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
   const [gptProvider, setGptProvider] = useState(config?.gpt?.provider ?? "");
   const [gptUser, setGptUser] = useState(config?.gpt?.user ?? "");
   const [gptAliases, setGptAliases] = useState(config?.gpt?.modelAliases.join(", ") ?? "");
+  const [gptProxyOrigin, setGptProxyOrigin] = useState(config?.gpt?.routeOrigin ?? "");
   const [key, setKey] = useState("");
   const [removeKey, setRemoveKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -52,10 +53,13 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
   const keepKey = !removeKey && config !== null && origin === magpieGatewayOrigin(config.url);
   const modelAliases = parseModelAliases(aliases);
   const gptModelAliases = parseModelAliases(gptAliases);
+  const routeOrigin = magpieGatewayOrigin(gptProxyOrigin.trim());
+  const invalidGptProxyOrigin = gptProxyOrigin.trim() !== "" && routeOrigin === undefined;
   const canSave =
     !readOnly &&
     !saving &&
     origin !== undefined &&
+    (!gptEnabled || !invalidGptProxyOrigin) &&
     provider.trim() !== "" &&
     [...modelAliases, ...gptModelAliases].every((alias) => alias.length <= 512);
 
@@ -80,6 +84,7 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
                 ...(gptProvider.trim() ? { provider: gptProvider.trim() } : {}),
                 user: gptUser.trim(),
                 modelAliases: gptModelAliases,
+                ...(routeOrigin ? { routeOrigin } : {}),
               },
               gatewayKey: key.trim() || (keepKey ? config.gatewayKey : ""),
               revision: randomUUID(),
@@ -152,6 +157,21 @@ function MagpieGlmQuotaForm({ environmentId, config, readOnly }: Props) {
                 placeholder="codex"
               />
             </Label>
+            <Label className="grid">
+              <T>GPT proxy origin (optional)</T>
+              <Input
+                value={gptProxyOrigin}
+                onChange={(event) => setGptProxyOrigin(event.target.value)}
+                aria-invalid={invalidGptProxyOrigin}
+                aria-describedby={`${id}-gpt-proxy-origin`}
+              />
+            </Label>
+            <p id={`${id}-gpt-proxy-origin`} className="text-xs text-muted-foreground">
+              <T>
+                If GPT requests go through a separate proxy, enter its origin without /v1. Quota is
+                still read from the Magpie gateway above.
+              </T>
+            </p>
             <Label className="grid">
               <T>GPT account name in Magpie (optional)</T>
               <Input value={gptUser} onChange={(event) => setGptUser(event.target.value)} />
