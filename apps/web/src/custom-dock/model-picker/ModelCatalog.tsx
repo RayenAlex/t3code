@@ -13,7 +13,7 @@ import {
   type ProviderInstanceId,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { useGT, useLocale, useMessages } from "gt-react";
+import { T, useGT, useLocale, useMessages } from "gt-react";
 import { CheckIcon, SearchIcon, StarIcon } from "lucide-react";
 import {
   useEffect,
@@ -136,7 +136,7 @@ function ProviderNotice({
                 void navigate({ to: "/settings/providers" });
               }}
             >
-              {gt("Provider settings")}
+              <T>Provider settings</T>
             </InlineButton>
           )}
         </p>
@@ -268,7 +268,7 @@ export function ModelCatalog(props: {
           (provider) => provider.name === row.option.subProvider,
         )?.unavailableReason ??
         (row.option.isUnavailable && !selectedKeys.has(row.key)
-          ? gt("Unavailable", { $context: "badge on a model that cannot be selected" })
+          ? gt("Unavailable", { $context: "backend cannot be used right now" })
           : null));
   const pick = (key: string, additive: boolean) => {
     const row = rowByKey.get(key);
