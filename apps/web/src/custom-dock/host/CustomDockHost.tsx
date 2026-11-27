@@ -50,6 +50,7 @@ import { ComposerAnchorPortal } from "./ComposerAnchorPortal";
 import { DockTab, DockTabList } from "./DockTabs";
 import { composerMetricKeys } from "./dockStore";
 import { DockRuntime, dockPreferences, useDockCopy, useDockRuntime } from "./panelContext";
+import { ModelPickerPreference } from "../model-picker/ModelPickerPreference";
 import { RightRailGeminiQuotaCard } from "./RightRailGeminiQuotaCard";
 import { RightRailGlmQuotaSlot } from "./RightRailGlmQuotaSlot";
 import { RightRailJarRunnerSlot } from "./RightRailJarRunnerSlot";
@@ -186,6 +187,7 @@ function DockPreferences({ scope }: { readonly scope: ScopedThreadRef | null }) 
           />
           {copy.compactBar}
         </label>
+        <ModelPickerPreference />
         {scope && (
           <Button
             size="xs"

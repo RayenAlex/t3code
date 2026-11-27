@@ -6,11 +6,7 @@ import { useGT, useMessages } from "gt-react";
 import { CircleAlertIcon } from "lucide-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerControl } from "./ComposerControl";
-import {
-  ComposerFooterModeControls,
-  ComposerModelPicker,
-  type RuntimeModeOption,
-} from "./ComposerFooterControls";
+import { ComposerFooterModeControls, type RuntimeModeOption } from "./ComposerFooterControls";
 import {
   type EnvironmentId,
   type ModelSelection,
@@ -31,6 +27,7 @@ import {
 } from "./ComposerModelEffort";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
 import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
+import { CustomDockComposerModelPicker } from "../../custom-dock/model-picker/CustomDockModelPicker";
 
 /**
  * The composer footer controls: the model picker (which also holds effort, speed and
@@ -185,7 +182,14 @@ export function ComposerControlsBar(props: {
     : [];
   // Its own element, so typing (which rebuilds the controls around it) leaves it cached.
   const composerModelPicker = (
-    <ComposerModelPicker
+    <CustomDockComposerModelPicker
+      dock={{
+        traits: traitsInput,
+        effortDisplay: props.effortDisplay,
+        runtimeMode: compatibleRuntimeMode,
+        runtimeModeOptions: compatibleRuntimeModeOptions,
+        onRuntimeModeChange: handleRuntimeModeChange,
+      }}
       environmentId={environmentId}
       workspaceCwd={props.workspaceCwd}
       compact={false}

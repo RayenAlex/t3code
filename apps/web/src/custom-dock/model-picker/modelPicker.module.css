@@ -1,0 +1,694 @@
+.modelPicker {
+  padding: 0.875rem;
+  font-size: 0.8125rem;
+}
+
+.modelPicker button:focus-visible,
+.modelPicker select:focus-visible,
+.modelPicker [role="slider"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.modelSearch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  height: 2.375rem;
+  padding-inline: 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--border) 54%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--foreground) 5%, transparent);
+  color: var(--muted-foreground);
+  cursor: text;
+}
+
+.modelSearch:focus-within {
+  border-color: color-mix(in oklab, var(--ring) 45%, var(--border));
+}
+
+.modelSearch svg,
+.permissionDisclosure svg,
+.permissionCurrent svg {
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+}
+
+.modelSearch input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  outline: none;
+  color: var(--foreground);
+}
+
+.modelSearch input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.modelSearch kbd {
+  flex: none;
+  opacity: 0.7;
+  font: 0.6875rem var(--font-mono);
+}
+
+.providerRail {
+  display: flex;
+  align-items: center;
+  margin-top: 0.375rem;
+}
+
+.providerViewport {
+  flex: 1;
+  min-width: 0;
+  overflow: auto hidden;
+  scrollbar-width: none;
+  overscroll-behavior-inline: contain;
+  scroll-behavior: smooth;
+}
+
+.modelPills {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  width: max-content;
+  padding: 0.375rem 0.125rem 0.625rem;
+}
+
+.providerScrollControls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.125rem;
+  margin-inline-start: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.providerScrollControls button {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.375rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.providerScrollControls button:hover:not([aria-disabled="true"]) {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.providerScrollControls button[aria-disabled="true"] {
+  opacity: 0.36;
+  cursor: default;
+}
+
+.providerScrollControls svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.modelPills button,
+.traitChip,
+.traitSelect,
+.permissionCurrent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-width: 0;
+  white-space: nowrap;
+  border-radius: 999px;
+}
+
+.modelPills button {
+  flex: none;
+  max-width: 13rem;
+  padding: 0.25rem 0.625rem;
+  line-height: 1.25rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.modelPills button[aria-pressed="true"] {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.modelPills button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.modelPills button[aria-pressed="false"]:not(:disabled):hover,
+.modelStar:hover,
+.permissionDisclosure:hover {
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+  color: var(--foreground);
+}
+
+.modelInstanceTag {
+  flex: none;
+  padding-inline: 0.25rem;
+  border-radius: 0.1875rem;
+  background: color-mix(in oklab, currentColor 10%, transparent);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  line-height: 0.875rem;
+}
+
+.modelListWrap {
+  /* Base UI substitutes max-content for its available height during popup measurement. */
+  height: clamp(5.25rem, calc(100dvh - 20rem), 10.5rem);
+  margin-bottom: 0.375rem;
+  padding-top: 0.625rem;
+  box-sizing: content-box;
+  border-top: 1px solid var(--border);
+}
+
+.modelList {
+  height: 100%;
+  overflow: hidden;
+}
+
+.modelRow {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  height: 2.5rem;
+  margin-bottom: 0.125rem;
+  padding-inline: 0.5rem;
+  border-radius: 0.625rem;
+  outline: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.modelRow[data-highlighted] {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
+.modelRow[data-picked] {
+  background: color-mix(in oklab, var(--foreground) 8%, transparent);
+  font-weight: 600;
+}
+
+.modelRow[data-disabled] {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.modelProviderTile {
+  width: 1.625rem;
+  height: 1.625rem;
+  border: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
+  border-radius: 0.4375rem;
+  background: color-mix(in oklab, var(--foreground) 4%, var(--popover));
+}
+
+.modelName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelStar,
+.modelCheck {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.modelStar {
+  border-radius: 0.375rem;
+  color: var(--muted-foreground);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.modelRow:is(:hover, :focus-within, [data-highlighted]) .modelStar {
+  opacity: 1;
+}
+
+.modelStar[data-favorite] svg {
+  fill: currentColor;
+  color: var(--warning-foreground);
+}
+
+.modelStar svg,
+.modelCheck svg,
+.traitChip svg,
+.traitSelect svg {
+  display: block;
+  width: 0.8125rem;
+  height: 0.8125rem;
+}
+
+.modelEmpty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--muted-foreground);
+}
+
+.providerNotice {
+  padding: 0.375rem 0.5rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.modelTriggerIcons,
+.modelTriggerTraits {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.modelTriggerIcons > * + * {
+  margin-inline-start: -0.1875rem;
+  border-radius: 50%;
+  background: var(--chat-composer-glass-surface, var(--background));
+}
+
+.modelTriggerTraits {
+  gap: 0.375rem;
+  color: var(--muted-foreground);
+}
+
+.effortCard {
+  --dock-energy: #818cf8;
+  --dock-energy-ink: var(--foreground);
+  position: relative;
+  isolation: isolate;
+  margin-top: 0.5rem;
+  padding: 0.75rem 0.8125rem 0.8125rem;
+  border: 1px solid var(--border);
+  border-radius: 0.875rem;
+  background: color-mix(in oklab, var(--foreground) 3%, var(--popover));
+}
+
+.effortCard[data-energy="max"] {
+  --dock-energy: #a855f7;
+  --dock-energy-ink: light-dark(#6b21a8, #e9d5ff);
+}
+
+.effortCard[data-energy="ultra"] {
+  --dock-energy: #f59e0b;
+  --dock-energy-ink: light-dark(#92400e, #fde68a);
+}
+
+.effortCard[data-energy] {
+  border-color: color-mix(in srgb, var(--dock-energy) 65%, var(--border));
+  box-shadow: 0 0 0.75rem color-mix(in srgb, var(--dock-energy) 22%, transparent);
+}
+
+.effortHeading,
+.effortTitle,
+.effortMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.effortHeading {
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.5rem;
+  margin-bottom: 0.6875rem;
+}
+
+.effortTitle {
+  font-weight: 600;
+}
+
+.effortDot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--dock-energy);
+  box-shadow: 0 0 0.625rem color-mix(in srgb, var(--dock-energy) 55%, transparent);
+}
+
+.effortSeparator,
+.effortMeta {
+  color: var(--muted-foreground);
+}
+
+.effortMeta {
+  flex: none;
+  font-size: 0.6875rem;
+}
+
+.effortLabel {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.125rem 0.3125rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    border-color 160ms,
+    scale 300ms cubic-bezier(0.22, 0.88, 0.32, 1.18);
+}
+
+.effortCard[data-energy] .effortLabel {
+  padding-inline: 0.5rem;
+  border-color: var(--dock-energy);
+  color: var(--dock-energy-ink);
+  background: color-mix(in oklab, var(--dock-energy) 10%, var(--popover));
+  box-shadow: 0 0 0.5rem color-mix(in srgb, var(--dock-energy) 25%, transparent);
+  scale: 1.08;
+}
+
+.effortCard[data-energy="ultra"] .effortLabel {
+  scale: 1.15;
+}
+
+.traitChip,
+.traitSelect {
+  min-height: 1.375rem;
+  padding-inline: 0.4375rem;
+  border: 1px solid var(--border);
+  background: var(--popover);
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+
+.traitSelect select {
+  min-width: 0;
+  max-width: 8rem;
+  cursor: pointer;
+}
+
+.traitSelect option {
+  background: var(--popover);
+  color: var(--foreground);
+}
+
+.traitChip[aria-pressed="true"] {
+  border-color: color-mix(in oklab, var(--warning-foreground) 45%, var(--border));
+  color: var(--warning-foreground);
+}
+
+.traitChip:disabled,
+.traitSelect:has(select:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.otherTraits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-block: 0.5rem;
+}
+
+.detentTrack {
+  position: relative;
+  touch-action: none;
+  user-select: none;
+}
+
+.detentThumb {
+  position: absolute;
+  left: var(--dock-detent-drag, var(--dock-detent-stop));
+  top: 50%;
+  translate: -50% -50%;
+  pointer-events: none;
+  transition: left 320ms cubic-bezier(0.22, 0.88, 0.32, 1.14);
+}
+
+.detentTrack[data-dragging] .detentThumb {
+  transition: left 85ms ease-out;
+}
+
+.effortOrbit {
+  isolation: isolate;
+  display: block;
+  height: 2.875rem;
+  overflow: clip;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background:
+    radial-gradient(ellipse at 70% 59%, #6e43b9 0%, transparent 70%) padding-box,
+    linear-gradient(103deg, #151226, #34205a 49%, #200f39) padding-box,
+    linear-gradient(100deg, #6865e8, var(--dock-energy) 92%) border-box;
+  box-shadow: 0 0 0.65rem color-mix(in srgb, var(--dock-energy) 34%, transparent);
+  cursor: ew-resize;
+}
+
+.effortOrbit[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.effortTick {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  width: 0.1875rem;
+  height: 0.1875rem;
+  translate: -50% -50%;
+  pointer-events: none;
+  border-radius: 100%;
+  background: #e3d6ff;
+  opacity: 0.44;
+}
+
+.effortTick[data-current] {
+  opacity: 0.9;
+}
+
+.orbitThumb {
+  display: grid;
+  place-items: center;
+  z-index: 2;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid #fffbebd9;
+  border-radius: 50%;
+  background: radial-gradient(circle at 42% 39%, #fffefa, #fff4c6 47%, #ccb5ff 86%);
+  box-shadow:
+    0 0 1.125rem color-mix(in srgb, var(--dock-energy) 60%, #fbf0c6),
+    inset 0 0 0.3125rem #fff;
+  color: white;
+}
+
+.orbitThumb::before,
+.orbitThumb::after {
+  position: absolute;
+  inset: 0.1875rem -1.625rem;
+  border: 1px solid color-mix(in srgb, #f3e8ff 52%, transparent);
+  border-radius: 50%;
+  content: "";
+  transform: rotate(-15deg);
+}
+
+.orbitThumb::after {
+  inset: 0.4375rem -1.1875rem;
+  border-color: color-mix(in srgb, var(--dock-energy) 64%, transparent);
+  transform: rotate(15deg);
+}
+
+.orbitStar {
+  width: 1.125rem;
+  height: 1.125rem;
+  background: #fff;
+  clip-path: polygon(50% 0%, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0% 50%, 39% 39%);
+}
+
+.effortParticles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.effortEdge {
+  inset: -0.5rem;
+  z-index: -1;
+}
+
+.effortParticles > span {
+  position: absolute;
+  width: var(--particle-size, 0.3125rem);
+  height: var(--particle-size, 0.3125rem);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--dock-energy) 75%, #fff);
+  opacity: 0;
+  animation: dock-picker-particle 1120ms var(--particle-delay) ease-out both;
+}
+
+.effortOrbit .effortParticles > span {
+  background: color-mix(in srgb, var(--dock-energy) 38%, #fff);
+}
+
+.effortEdge > .effortComet {
+  width: 0.5rem;
+  height: 0.5rem;
+  box-shadow: 0 0 0.75rem 0.1875rem var(--dock-energy);
+  offset-path: inset(0.5rem round 0.875rem);
+  animation: dock-picker-comet 1320ms ease-out both;
+}
+
+@keyframes dock-picker-particle {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.45);
+  }
+  26% {
+    opacity: 0.84;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--particle-travel), var(--particle-drift)) scale(0.25);
+  }
+}
+
+@keyframes dock-picker-comet {
+  0% {
+    opacity: 0;
+    offset-distance: 0%;
+  }
+  19% {
+    opacity: 0.88;
+  }
+  100% {
+    opacity: 0;
+    offset-distance: 100%;
+  }
+}
+
+.modelPermissions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem;
+  margin-top: 0.625rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+
+.permissionDisclosure,
+.permissionCurrent {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: none;
+  min-height: 1.875rem;
+  padding-inline: 0.25rem;
+  border-radius: 0.375rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.permissionDisclosure[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+.permissionCurrent {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding-inline: 0.625rem;
+}
+
+.permissionSegments {
+  display: flex;
+  min-width: 0;
+  width: min(100%, var(--dock-permission-width));
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--foreground) 6%, var(--popover));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--border) 62%, transparent);
+}
+
+.permissionSegments[hidden] {
+  display: none;
+}
+
+.permissionThumb {
+  width: calc(var(--dock-detent-width) - 0.3125rem);
+  height: calc(100% - 0.4375rem);
+  border-radius: 999px;
+  background: var(--popover);
+  box-shadow: 0 1px 4px #0003;
+}
+
+.permissionSegments button {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 1.9375rem;
+  padding: 0.25rem 0.1875rem;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  line-height: 1.15;
+  cursor: pointer;
+}
+
+.permissionLabel {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.permissionSegments button[aria-checked="true"] {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.permissionSegments button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 390px) {
+  .modelPermissions {
+    flex-wrap: wrap;
+  }
+
+  .permissionSegments {
+    flex: auto;
+    justify-content: stretch;
+  }
+}
+
+@media (pointer: coarse) {
+  .modelSearch input {
+    font-size: 1rem;
+  }
+
+  .modelStar {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .providerViewport {
+    scroll-behavior: auto;
+  }
+
+  .effortParticles {
+    display: none;
+  }
+
+  .detentTrack .detentThumb,
+  .effortLabel {
+    transition: none;
+  }
+}

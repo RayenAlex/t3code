@@ -68,6 +68,7 @@ function readPreferences(storage: Storage | null) {
     drawerWidth: typeof state?.drawerWidth === "number" ? width(state.drawerWidth) : 360,
     activePanelId: typeof state?.activePanelId === "string" ? state.activePanelId : null,
     composerBarEnabled: state?.composerBarEnabled !== false,
+    composerModelPickerEnabled: state?.composerModelPickerEnabled !== false,
     collapsedByThreadKey: collapsed as Record<string, boolean>,
     metricsVersion: METRICS_VERSION,
     visibleMetrics: Array.isArray(state?.visibleMetrics)
@@ -95,6 +96,7 @@ interface DockState extends Preferences {
   setDrawerWidth(width: number): void;
   setActivePanelId(id: string | null): void;
   setComposerBarEnabled(enabled: boolean): void;
+  setComposerModelPickerEnabled(enabled: boolean): void;
   setThreadCollapsed(key: string, collapsed: boolean): void;
   setVisibleMetrics(values: readonly string[]): void;
   upsertExternalPanel(panel: ExternalWebPanelConfig): void;
@@ -113,6 +115,8 @@ export function createDockStore(storage: Storage | null = availableStorage()) {
       }),
     setActivePanelId: (activePanelId: string | null) => set({ activePanelId }),
     setComposerBarEnabled: (composerBarEnabled: boolean) => set({ composerBarEnabled }),
+    setComposerModelPickerEnabled: (composerModelPickerEnabled: boolean) =>
+      set({ composerModelPickerEnabled }),
     setThreadCollapsed: (key: string, collapsed: boolean) =>
       set((state) => {
         const collapsedByThreadKey = { ...state.collapsedByThreadKey };

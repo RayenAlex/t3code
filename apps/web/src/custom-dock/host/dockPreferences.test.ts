@@ -17,6 +17,8 @@ it("clamps saved width and restores composer, drawer, and external panel prefere
     clear: () => values.clear(),
   };
   const dock = createDockStore(storage);
+  expect(dock.getState().composerModelPickerEnabled).toBe(true);
+  dock.getState().setComposerModelPickerEnabled(false);
   dock.getState().setDrawerWidth(900);
   dock.getState().setDrawerOpen(true);
   dock.getState().setThreadCollapsed("local:thread", true);
@@ -30,6 +32,7 @@ it("clamps saved width and restores composer, drawer, and external panel prefere
   expect(restored.getState()).toMatchObject({
     drawerOpen: true,
     drawerWidth: 560,
+    composerModelPickerEnabled: false,
     collapsedByThreadKey: { "local:thread": true },
     externalPanels: [{ id: "external" }],
   });
